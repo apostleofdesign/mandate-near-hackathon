@@ -1,6 +1,7 @@
-// Starting point for the dashboard: connect a wallet, list mandates and
-// open tasks. Replace the placeholder sections as the contracts get deployed —
-// see the root README's "Run it" steps for the deploy + env var sequence.
+// Home: Mandate is the permission primitive. Everything else on this site is
+// a surface built on top of it — Hire a Swarm is the flagship, Checkout is a
+// second working surface, Developers is the integration guide proving it's
+// reusable infra, not a one-off feature.
 "use client";
 
 import { useEffect, useState } from "react";
@@ -11,12 +12,44 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { RiShieldCheckLine, RiArrowRightLine, RiWalletLine, RiCheckboxCircleFill } from "@remixicon/react";
+import {
+  RiShieldCheckLine,
+  RiArrowRightLine,
+  RiWalletLine,
+  RiCheckboxCircleFill,
+  RiGroupLine,
+  RiShoppingBag3Line,
+  RiToolsLine,
+} from "@remixicon/react";
 
 const CONTRACTS = [
   { label: "Mandate", id: MANDATE_CONTRACT_ID, required: true },
-  { label: "Checkout", id: CHECKOUT_CONTRACT_ID, required: true },
-  { label: "Task Market (swarm stretch goal)", id: TASK_MARKET_CONTRACT_ID, required: false },
+  { label: "Task Market", id: TASK_MARKET_CONTRACT_ID, required: true },
+  { label: "Checkout", id: CHECKOUT_CONTRACT_ID, required: false },
+];
+
+const SURFACES = [
+  {
+    href: "/swarm",
+    icon: RiGroupLine,
+    title: "Hire a Swarm",
+    desc: "Post a job, worker agents bid, assign and settle on-chain.",
+    primary: true,
+  },
+  {
+    href: "/developers",
+    icon: RiToolsLine,
+    title: "Developers",
+    desc: "Integrate Mandate into your own NEAR app in two calls.",
+    primary: false,
+  },
+  {
+    href: "/store",
+    icon: RiShoppingBag3Line,
+    title: "Checkout demo",
+    desc: "Universal checkout, gated by the same mandate.",
+    primary: false,
+  },
 ];
 
 export default function Home() {
@@ -37,12 +70,44 @@ export default function Home() {
           <RiShieldCheckLine className="size-3.5" />
           NEAR HACKATHON
         </Badge>
-        <h1 className="font-heading text-2xl font-medium tracking-tight">Mandate Checkout</h1>
+        <h1 className="font-heading text-2xl font-medium tracking-tight">Mandate</h1>
         <p className="max-w-lg text-sm text-muted-foreground">
-          A universal checkout widget, built so it works identically for a human paying their own
-          funds and an AI agent spending under a capped, revocable permission instead of a raw key.
+          A capped, revocable, allow-listed spending permission for AI agents — instead of a raw key.
+          Hire a Swarm is the flagship surface built on it; it isn&apos;t the only one.
         </p>
       </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        {SURFACES.map((s) => (
+          <Button
+            key={s.href}
+            render={<Link href={s.href} />}
+            nativeButton={false}
+            variant={s.primary ? "default" : "outline"}
+            className="h-auto flex-col items-start gap-1 whitespace-normal px-4 py-3.5 text-left"
+          >
+            <s.icon className="size-4" />
+            <span className="font-medium">{s.title}</span>
+            <span className={s.primary ? "text-xs font-normal opacity-90" : "text-xs font-normal text-muted-foreground"}>
+              {s.desc}
+            </span>
+          </Button>
+        ))}
+      </div>
+
+      {accountId ? (
+        <div className="flex items-center gap-2 text-sm">
+          <RiCheckboxCircleFill className="size-4 text-primary" />
+          Signed in as <span className="font-medium">{accountId}</span>
+        </div>
+      ) : (
+        <Button onClick={() => wallet?.requestSignIn({ contractId: MANDATE_CONTRACT_ID, keyType: "ed25519" })} className="w-fit gap-2">
+          <RiWalletLine className="size-4" />
+          Connect wallet
+        </Button>
+      )}
+
+      <Separator />
 
       <Card>
         <CardHeader>
@@ -63,36 +128,15 @@ export default function Home() {
         </CardContent>
       </Card>
 
-      <Separator />
-
-      <div className="flex flex-col gap-3">
-        {accountId ? (
-          <div className="flex items-center gap-2 text-sm">
-            <RiCheckboxCircleFill className="size-4 text-primary" />
-            Signed in as <span className="font-medium">{accountId}</span>
-          </div>
-        ) : (
-          <Button onClick={() => wallet?.requestSignIn({ contractId: MANDATE_CONTRACT_ID, keyType: "ed25519" })} className="w-fit gap-2">
-            <RiWalletLine className="size-4" />
-            Connect wallet
-          </Button>
-        )}
-
-        <Button render={<Link href="/store" />} nativeButton={false} variant="secondary" className="w-fit gap-2">
-          Try the demo storefront
-          <RiArrowRightLine className="size-4" />
-        </Button>
-      </div>
-
       <Card className="border-dashed">
         <CardHeader>
           <CardTitle className="text-sm">TODO</CardTitle>
         </CardHeader>
         <CardContent>
           <ul className="list-disc space-y-1.5 pl-4 text-sm text-muted-foreground">
-            <li>List mandates for the connected account via get_mandate.</li>
-            <li>Live spend-vs-cap bar per mandate, fed by the Guard watcher.</li>
-            <li>Order history view fed by Checkout&apos;s get_order.</li>
+            <li>Live spend-vs-cap bar per mandate on this page, fed by list_mandates.</li>
+            <li>Wire a real LLM call into agents/worker.ts's runWork.</li>
+            <li>Verify the cross-chain Intents branch in the checkout widget against live docs.</li>
           </ul>
         </CardContent>
       </Card>

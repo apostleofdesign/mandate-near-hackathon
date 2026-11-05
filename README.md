@@ -1,37 +1,42 @@
-# Mandate Checkout
+# Mandate
 
-A universal checkout widget — any merchant, any customer wallet or chain, via NEAR Intents — built so the exact same flow works for a human paying their own money and an AI agent spending under a capped, revocable permission instead of a raw key. Built for **NEAR HACKATHON** (Build Beyond Boundaries, 1–14 Nov 2026).
+A capped, revocable, allow-listed spending permission for AI agents — instead of a raw private key. Built for **NEAR HACKATHON** (Build Beyond Boundaries, 1–14 Nov 2026).
 
-Tracks: **Real-World Money** (`realworld`) · **Agent Economy** (`agents`) · **AI Security & Defense** (`security`) · fits **Unstoppable DeFi** (`defi`) via Intents settlement
+Mandate is infrastructure, not one app's feature. This repo ships three independent surfaces built on the same permission contract:
+
+- **Hire a Swarm** (`/swarm`) — the flagship: post a job, worker agents bid, you assign and settle on-chain.
+- **Developers** (`/developers`) — the integration guide: how any NEAR app gates spending through Mandate in two calls.
+- **Checkout** (`/store`) — a universal checkout widget, a second working surface proving the same permission isn't tied to one use case.
+
+Tracks: **Agent Economy** (`agents`) · **AI Swarms** (`swarms`) · **AI Security & Defense** (`security`) · fits **Autonomous Business** (`business`) and **Real-World Money** (`realworld`) via Checkout
 
 ## The problem
 
-Three things are true at once right now:
-
-1. A merchant who wants to accept payment from "whatever wallet a customer already has" has to integrate every chain separately — or just doesn't bother, and loses the sale.
-2. Giving an AI agent a wallet for autonomous purchasing means giving it a real private key: unbounded authority, with no way to cap or revoke it short of cutting the key entirely.
-3. Every judge we could find public statements from raised one of these two problems independently — not as a hackathon prompt, but as their own stated skepticism of "crypto + AI agents" projects in general.
+1. Giving an AI agent a wallet means giving it a real private key: unbounded authority, with no way to cap or revoke it short of cutting the key entirely.
+2. Every judge we could find public statements from raised a version of this independently, unprompted: Avichal Garg (Electric Capital) publicly asked, on a NEARCON panel, who holds the keys once agents have wallets; Mert Mumtaz (Helius) said agent payments are pointless unless they do something a Stripe integration structurally can't; Haseeb Qureshi (Dragonfly) said he wouldn't trust an agent with his own portfolio at current reliability.
+3. "Agents that can hire other agents" is one of the hackathon's own named tracks, and Illia Polosukhin (NEAR co-founder, a judge) separately posted wanting a swarm-for-hire with exactly this kind of guardrail.
 
 ## What we built
 
-- **`contracts/mandate`** — a revocable, policy-bounded spending permission. Daily cap, optional contract allow-list, optional expiry, every spend checked and recorded on-chain before it's allowed to proceed. A `guard` account independent of whoever issued the mandate can force-revoke it the instant spend velocity looks wrong.
-- **`contracts/checkout`** — the on-chain settlement record behind the widget: a merchant registers once, a storefront creates an order, a payer pays it. It doesn't know or care what chain the customer started on — by the time `pay_order` runs, NEAR Intents has already converted whatever they held into NEAR.
-- **`app/components/CheckoutWidget.tsx`** — the embeddable widget itself. Pass it a merchant, an amount, and optionally a `mandateId`; it handles the rest identically either way.
-- **`app/app/store`** — a demo storefront running the widget against a real product.
-- **`agents/src/shopping-agent.ts`** — the flagship demo: an AI agent holding a procurement Mandate buys the demo product end to end — authorize, create order, pay — with every call real and on-chain, not simulated.
-- **`agents/src/{coordinator,worker,guard}.ts`** plus **`contracts/task-market`** — a stretch goal, not the core submission: extending the same Mandate primitive into a swarm-for-hire marketplace (agents bidding on sub-tasks under their own capped treasuries). See [`docs/architecture.md`](docs/architecture.md) for what's wired vs. stubbed.
+- **`contracts/mandate`** — the permission primitive. Daily cap, optional contract allow-list, optional expiry, every spend checked and recorded on-chain before it's allowed to proceed. A `guard` account independent of whoever issued the mandate can force-revoke it the instant spend velocity looks wrong. `list_mandates` pages through every mandate issued, for the dashboard and the Guard watcher.
+- **`contracts/task-market`** — the swarm marketplace. A requester posts a bounty with a budget attached; agents bid; the requester assigns a winner; the winner delivers a result hash; accepting it pays the winning bid immediately. `list_tasks` pages through the whole board.
+- **`app/app/swarm`** — **Hire a Swarm**, the marketplace UI over Task Market: post a job, watch bids come in, assign, accept & settle — every action a real contract call.
+- **`app/app/developers`** — **Build on Mandate**, the dev-tools page: the exact two-call pattern (`authorize_spend` then your own contract call) with TypeScript and near-cli snippets, and a reference table of every Mandate method.
+- **`agents/src/{worker,coordinator,guard}.ts`** — real, wired agents, not stubs: a worker polls the board, bids on tasks matching its skill, and delivers; a coordinator holds its own mandate and sub-bounties a decomposed job to workers from its own capped treasury; a guard polls every mandate's spend velocity and revokes the ones that look wrong. Only the work product itself (`runWork` in `worker.ts`) is a deterministic stub, left that way so the demo doesn't need an LLM API key to run end to end.
+- **`contracts/checkout`**, **`app/components/CheckoutWidget.tsx`**, **`app/app/store`**, **`agents/src/shopping-agent.ts`** — the second working surface: a universal checkout widget (any merchant, any customer wallet/chain via NEAR Intents) gated by the exact same Mandate, demoed by an AI shopping agent buying a real product end to end.
 
-How NEAR fits: settlement is native NEAR transfers on `checkout.pay_order`; **NEAR Intents** is what gets the customer there from any chain/wallet in the first place (`app/lib/intents.ts`); mandates are built on the same idea as NEAR's native **function-call access keys**, formalized as an explicit, inspectable policy object instead of an opaque key, with revocation (`guard`) as a first-class operation instead of an emergency measure.
+How NEAR fits: settlement on both surfaces is native NEAR transfers, gated by `mandate.authorize_spend` before the surface's own contract call ever runs; Checkout additionally uses **NEAR Intents** to land a customer's funds in NEAR from any chain/wallet first (`app/lib/intents.ts`); mandates formalize NEAR's native **function-call access key** idea into an explicit, inspectable, revocable policy object instead of an opaque key.
 
 ## Why this, specifically
 
-We read what all seven judges have actually said in public — investment theses, portfolio bets, interviews, essays — before picking this direction. The short version: Avichal Garg (Electric Capital) has publicly asked, on a NEARCON panel, who holds the keys once agents have wallets. Mert Mumtaz (Helius) has said AI agent payments are pointless unless they do something a Stripe integration structurally can't. Haseeb Qureshi (Dragonfly) has said he wouldn't trust an agent with his own portfolio at current reliability. Illia Polosukhin's own numbers show the NEAR Intents fee switch is the protocol's biggest revenue lever, and he's publicly named a Shopify-style checkout as the kind of thing he wants built. This project is a direct answer to all four at once: a capped, revocable, auditable permission (not a raw key), doing something no card network can (any-chain acceptance, enforced in code, not policy), that drives real, recurring Intents volume on every single transaction.
+Mandate is deliberately not married to one app. `contracts/checkout` and `contracts/task-market` are independent contracts that never call each other — both just call `mandate.authorize_spend` before their own logic runs, the same two-step pattern documented on `/developers`. That decoupling is the actual pitch: it's what lets a swarm marketplace and a checkout widget both exist on the same permission contract without one knowing the other exists, and it's what any third NEAR app would plug into the same way. Hire a Swarm is the flagship because "agents that hire other agents" is a named track and the clearest demo of agents actually transacting, not just chatting — but the dev-tools page exists specifically to make the point explicit: this is reusable infrastructure, not a one-off feature of either app built on it.
 
 ## Status
 
-- `contracts/mandate` and `contracts/checkout` — full logic, ready to build and deploy.
-- `app/components/CheckoutWidget.tsx` and `agents/src/shopping-agent.ts` — real, wired calls end to end for the NEAR-direct payment path; the cross-chain-via-Intents path calls a best-effort 1-Click client (`app/lib/intents.ts`) that needs its endpoint/schema verified against `docs.near-intents.org` before relying on it (flagged inline).
-- `contracts/task-market` and the coordinator/worker/guard agent scripts — the swarm-for-hire stretch goal from last iteration, intentionally not the focus this round. See architecture doc.
+- `contracts/mandate` and `contracts/task-market` — full logic including `list_mandates`/`list_tasks` pagination, ready to build and deploy.
+- `agents/src/worker.ts`, `coordinator.ts`, `guard.ts` — real polling loops and real contract calls end to end; only the LLM work product is stubbed.
+- `app/app/swarm` and `app/app/developers` — real, wired UI; typechecked and production-built clean.
+- `contracts/checkout`, `CheckoutWidget.tsx`, `agents/src/shopping-agent.ts` — still fully real for the NEAR-direct path (see prior iteration); the cross-chain-via-Intents branch in `app/lib/intents.ts` still needs its endpoint/schema verified against `docs.near-intents.org`.
 
 ## Run it
 
@@ -42,67 +47,70 @@ cd contracts
 rustup target add wasm32-unknown-unknown
 ./build.sh
 ```
-Expected result: `out/mandate.wasm`, `out/checkout.wasm`, and `out/task_market.wasm` all exist.
+Expected result: `out/mandate.wasm`, `out/task_market.wasm`, and `out/checkout.wasm` all exist.
 
-**2 — Deploy to testnet dev accounts.** See three contracts live on-chain.
+**2 — Deploy Mandate and Task Market to testnet dev accounts.**
 
 ```bash
+near create-account guard-dev.<you>.testnet --useFaucet
 near create-account mandate-dev.<you>.testnet --useFaucet
 near deploy mandate-dev.<you>.testnet out/mandate.wasm --initFunction new --initArgs '{"guard":"guard-dev.<you>.testnet"}'
 
-near create-account checkout-dev.<you>.testnet --useFaucet
-near deploy checkout-dev.<you>.testnet out/checkout.wasm --initFunction new --initArgs '{}'
-
-near create-account merchant-dev.<you>.testnet --useFaucet
-near call checkout-dev.<you>.testnet register_merchant '{"label":"Demo Store"}' --accountId merchant-dev.<you>.testnet
+near create-account market-dev.<you>.testnet --useFaucet
+near deploy market-dev.<you>.testnet out/task_market.wasm --initFunction new --initArgs '{}'
 ```
-Expected result: `near state <contract>.testnet` shows deployed code for both, and `get_merchant` returns the registered merchant.
+Expected result: `near state <contract>.testnet` shows deployed code for both.
 
-**3 — Run the dashboard and demo storefront.** See a human pay as themselves.
+**3 — Run the dashboard and Hire a Swarm.**
 
 ```bash
 cd app
 npm install
 NEXT_PUBLIC_NEAR_NETWORK=testnet \
 NEXT_PUBLIC_MANDATE_CONTRACT_ID=mandate-dev.<you>.testnet \
-NEXT_PUBLIC_CHECKOUT_CONTRACT_ID=checkout-dev.<you>.testnet \
-NEXT_PUBLIC_DEMO_MERCHANT_ACCOUNT=merchant-dev.<you>.testnet \
+NEXT_PUBLIC_TASK_MARKET_CONTRACT_ID=market-dev.<you>.testnet \
 npm run dev
 ```
-Expected result: `localhost:3000/store` shows the demo product; connecting a testnet wallet and choosing "NEAR (direct)" completes a real `pay_order` call.
+Expected result: `localhost:3000/swarm` loads the board (empty at first); connect a testnet wallet, post a job under "Post a job" — the board shows it under "Board" with a real on-chain task id.
 
-**4 — Issue a mandate and run the shopping agent.** See an AI agent check out under a capped permission.
+**4 — Hire a worker agent.** See a real bid land on your job.
 
 ```bash
-near create-account shopper.mandate.testnet --useFaucet
-near call mandate-dev.<you>.testnet issue_mandate \
-  '{"owner":"shopper.mandate.testnet","daily_cap":"5000000000000000000000000","allowed_contracts":["checkout-dev.<you>.testnet"],"expires_at":0}' \
-  --accountId <you>.testnet
-
+near create-account researcher.mandate.testnet --useFaucet
 cd agents
 npm install
-NEAR_AGENT_ACCOUNT=shopper.mandate.testnet \
-MANDATE_CONTRACT_ID=mandate-dev.<you>.testnet \
-CHECKOUT_CONTRACT_ID=checkout-dev.<you>.testnet \
-MERCHANT_ACCOUNT=merchant-dev.<you>.testnet \
-MANDATE_ID=0 \
-npm run shop
+NEAR_WORKER_ACCOUNT=researcher.mandate.testnet \
+TASK_MARKET_CONTRACT_ID=market-dev.<you>.testnet \
+WORKER_SKILL=research \
+npm run worker
 ```
-Expected result: the script logs "mandate authorized the spend", an order id, and a transaction hash — `get_order` on the checkout contract now shows that order as `Paid`.
+Expected result: within one poll interval, the worker logs a bid and it appears on the job's card in `/swarm`. Click "Assign" on that bid (as the job's poster); within the next poll the worker logs a delivery; click "Accept & settle" to pay it — `get_task` now shows `Settled`.
 
-**5 — See the fail-closed path.** Revoke the mandate, then rerun step 4's `npm run shop`.
+**5 — Run the Guard and watch it fail a mandate closed.**
 
 ```bash
-near call mandate-dev.<you>.testnet revoke '{"id":0}' --accountId <you>.testnet
+near call mandate-dev.<you>.testnet issue_mandate \
+  '{"owner":"coordinator.mandate.testnet","daily_cap":"500000000000000000000000","allowed_contracts":["market-dev.<you>.testnet"],"expires_at":0}' \
+  --accountId <you>.testnet
+
+NEAR_GUARD_ACCOUNT=guard-dev.<you>.testnet MANDATE_CONTRACT_ID=mandate-dev.<you>.testnet npm run guard
+# in another shell, try to post a sub-bounty that exceeds the tiny cap above:
+NEAR_COORDINATOR_ACCOUNT=coordinator.mandate.testnet \
+MANDATE_CONTRACT_ID=mandate-dev.<you>.testnet \
+TASK_MARKET_CONTRACT_ID=market-dev.<you>.testnet \
+MANDATE_ID=<the id just issued> \
+npm run coordinator "a one-page market brief"
 ```
-Expected result: `authorize_spend` panics with `mandate revoked`, the script exits non-zero, and no order is ever created — the Security track story, live.
+Expected result: `authorize_spend` panics with `daily cap exceeded` on the first subtask that doesn't fit — the script exits non-zero before a second sub-bounty is ever posted.
+
+**6 — Checkout, the second surface.** See [`docs/architecture.md`](docs/architecture.md) for the Checkout-specific deploy steps — same pattern, `contracts/checkout` instead of `task-market`.
 
 ## Disclosure (per `HACKATHON.md` Q-005 / Q-017)
 
-- All code written from 28 Oct 2026 onward, inside the eligible window that opened with the announcement on 19 Oct 2026. Direction was substantially revised on 5 Nov 2026 after reading the hackathon judges' public statements and Illia Polosukhin's follow-up idea post — the universal checkout concept is his, built out with our Mandate permission layer.
-- Built with AI pair-programming (Claude Code) for contract and scaffold code and for the judge research that shaped this direction; architecture, track strategy and all design decisions directed by the team.
-- No pre-existing libraries or templates beyond standard `near-sdk`, `near-api-js`, and `next` scaffolding.
-- No NEAR Intents testnet exists (per Q-007) — the cross-chain path in `app/lib/intents.ts` will be tested on mainnet with a separate dev account and `dry: true` quotes before any real transfer.
+- All code written from 28 Oct 2026 onward, inside the eligible window that opened with the announcement on 19 Oct 2026. Direction was revised twice since: to Checkout on 5 Nov after reading the hackathon judges' public statements, then to Hire a Swarm plus the dev-tools page the same week — Task Market and the agent scripts already existed from the first iteration; what changed is which surface leads and that the agents are real instead of stubbed.
+- Built with AI pair-programming (Claude Code) for contract and scaffold code and for the judge research that shaped the direction; architecture, track strategy and all design decisions directed by the team.
+- No pre-existing libraries or templates beyond standard `near-sdk`, `near-api-js`, and `next`/`shadcn` scaffolding.
+- No NEAR Intents testnet exists (per Q-007) — Checkout's cross-chain path will be tested on mainnet with a separate dev account and `dry: true` quotes before any real transfer.
 
 ## License
 

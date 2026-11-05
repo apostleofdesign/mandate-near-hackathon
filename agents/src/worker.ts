@@ -1,38 +1,88 @@
-// A specialist worker agent: watches the Task Market for open tasks it can do,
-// bids under its mandate's remaining daily cap, and on assignment calls an LLM
-// to produce the deliverable, then delivers a hash of the result.
+// A specialist worker agent: watches the Task Market for open tasks matching
+// its skill, bids, and on assignment delivers a result hash — real contract
+// calls end to end, same as shopping-agent.ts. The only stubbed part is the
+// work product itself (runWork), left deterministic so the demo doesn't need
+// an LLM API key to run.
 //
-// Usage: NEAR_WORKER_ACCOUNT=researcher.mandate.testnet npm run worker
+// Usage: NEAR_WORKER_ACCOUNT=researcher.mandate.testnet TASK_MARKET_CONTRACT_ID=market-dev.<you>.testnet WORKER_SKILL=research npm run worker
 import { connectAs } from "./near-client";
 import { createHash } from "crypto";
 
 const TASK_MARKET_CONTRACT_ID = process.env.TASK_MARKET_CONTRACT_ID ?? "";
 const WORKER_SKILL = process.env.WORKER_SKILL ?? "generic";
+const BID_FRACTION_PCT = BigInt(process.env.BID_FRACTION_PCT ?? "80"); // bid 80% of budget by default
+const POLL_MS = Number(process.env.POLL_MS ?? "4000");
+
+type TaskStatus = "Open" | "Assigned" | "Delivered" | "Settled" | "Cancelled";
+type Task = {
+  id: number;
+  requester: string;
+  spec: string;
+  budget: string;
+  bids: { bidder: string; price: string; note: string }[];
+  assignee: string | null;
+  status: TaskStatus;
+  delivery_hash: string | null;
+};
 
 async function main() {
   const accountId = process.env.NEAR_WORKER_ACCOUNT;
   if (!accountId) throw new Error("set NEAR_WORKER_ACCOUNT");
+  if (!TASK_MARKET_CONTRACT_ID) throw new Error("set TASK_MARKET_CONTRACT_ID");
   const near = await connectAs(accountId);
   const account = await near.account(accountId);
+  const bidOn = new Set<number>();
+  const delivered = new Set<number>();
 
-  console.log(`[worker:${WORKER_SKILL}] watching ${TASK_MARKET_CONTRACT_ID} for open tasks...`);
+  console.log(`[worker:${WORKER_SKILL}] ${accountId} watching ${TASK_MARKET_CONTRACT_ID}`);
 
-  // TODO: poll get_task / an indexer for TaskStatus::Open tasks matching WORKER_SKILL,
-  // call `bid` with a price under the mandate's remaining cap (ask the Mandate
-  // registry's get_mandate first), then once assigned, call out to an LLM
-  // (e.g. Claude) with the task spec, hash the result, and call `deliver`.
+  while (true) {
+    const tasks: Task[] = await account.viewFunction({
+      contractId: TASK_MARKET_CONTRACT_ID,
+      methodName: "list_tasks",
+      args: { from_index: 0, limit: 50 },
+    });
 
-  const exampleSpec = "draft a one-paragraph market summary";
-  const exampleResult = await runWork(exampleSpec);
-  const hash = createHash("sha256").update(exampleResult).digest("hex");
-  console.log(`[worker:${WORKER_SKILL}] would deliver hash ${hash} for: "${exampleSpec}"`);
+    for (const task of tasks) {
+      const matchesSkill = task.spec.toLowerCase().includes(WORKER_SKILL.toLowerCase());
 
-  void account; // referenced once wired to real contract calls
+      if (task.status === "Open" && matchesSkill && !bidOn.has(task.id)) {
+        const price = (BigInt(task.budget) * BID_FRACTION_PCT) / 100n;
+        await account.functionCall({
+          contractId: TASK_MARKET_CONTRACT_ID,
+          methodName: "bid",
+          args: { task_id: task.id, price: price.toString(), note: `${WORKER_SKILL} worker bid` },
+          gas: 30_000_000_000_000n,
+        });
+        bidOn.add(task.id);
+        console.log(`[worker:${WORKER_SKILL}] bid ${price}y on task #${task.id}: "${task.spec}"`);
+      }
+
+      if (task.status === "Assigned" && task.assignee === accountId && !delivered.has(task.id)) {
+        const result = await runWork(task.spec);
+        const hash = createHash("sha256").update(result).digest("hex");
+        await account.functionCall({
+          contractId: TASK_MARKET_CONTRACT_ID,
+          methodName: "deliver",
+          args: { task_id: task.id, delivery_hash: hash },
+          gas: 30_000_000_000_000n,
+        });
+        delivered.add(task.id);
+        console.log(`[worker:${WORKER_SKILL}] delivered task #${task.id}, hash ${hash}`);
+      }
+    }
+
+    await sleep(POLL_MS);
+  }
 }
 
 async function runWork(spec: string): Promise<string> {
   // TODO: replace with a real call to an LLM API using the task spec as the prompt.
   return `stub result for: ${spec}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 main().catch((err) => {

@@ -22,7 +22,7 @@ export async function getWallet(): Promise<WalletConnection> {
 
 export async function getMandateContract(wallet: WalletConnection) {
   return new Contract(wallet.account(), MANDATE_CONTRACT_ID, {
-    viewMethods: ["get_mandate"],
+    viewMethods: ["get_mandate", "list_mandates"],
     changeMethods: ["issue_mandate", "authorize_spend", "revoke"],
     useLocalViewExecution: false,
   });
@@ -30,7 +30,7 @@ export async function getMandateContract(wallet: WalletConnection) {
 
 export async function getTaskMarketContract(wallet: WalletConnection) {
   return new Contract(wallet.account(), TASK_MARKET_CONTRACT_ID, {
-    viewMethods: ["get_task"],
+    viewMethods: ["get_task", "list_tasks"],
     changeMethods: ["post_task", "bid", "assign", "deliver", "accept_and_settle"],
     useLocalViewExecution: false,
   });

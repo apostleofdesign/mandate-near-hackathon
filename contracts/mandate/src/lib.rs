@@ -7,7 +7,7 @@
 // account (the anomaly watcher in `agents/`) can force-revoke a mandate
 // independently of its issuer the moment spend velocity looks wrong.
 
-use near_sdk::store::LookupMap;
+use near_sdk::store::{LookupMap, Vector};
 use near_sdk::{env, near, AccountId, NearToken, PanicOnDefault};
 
 pub type MandateId = u64;
@@ -35,6 +35,9 @@ pub struct Mandate {
 #[derive(PanicOnDefault)]
 pub struct MandateRegistry {
     pub mandates: LookupMap<MandateId, Mandate>,
+    /// Every issued mandate id, in issue order — lets `list_mandates` page
+    /// through them without an indexer. `LookupMap` alone has no iteration.
+    pub mandate_ids: Vector<MandateId>,
     pub next_id: MandateId,
     /// Account allowed to force-revoke any mandate on anomaly (the Guard watcher).
     pub guard: AccountId,
@@ -44,7 +47,7 @@ pub struct MandateRegistry {
 impl MandateRegistry {
     #[init]
     pub fn new(guard: AccountId) -> Self {
-        Self { mandates: LookupMap::new(b"m"), next_id: 0, guard }
+        Self { mandates: LookupMap::new(b"m"), mandate_ids: Vector::new(b"i"), next_id: 0, guard }
     }
 
     /// Issue a new mandate to `owner`. Called by whoever is granting the agent its budget
@@ -70,7 +73,20 @@ impl MandateRegistry {
             revoked: false,
         };
         self.mandates.insert(id, mandate);
+        self.mandate_ids.push(id);
         id
+    }
+
+    /// Page through every mandate ever issued, newest-covering-oldest ids in
+    /// issue order. Used by the Guard watcher (which has no other way to
+    /// enumerate live mandates) and by the dashboard.
+    pub fn list_mandates(&self, from_index: u64, limit: u64) -> Vec<Mandate> {
+        self.mandate_ids
+            .iter()
+            .skip(from_index as usize)
+            .take(limit as usize)
+            .filter_map(|id| self.mandates.get(id).cloned())
+            .collect()
     }
 
     /// Check and record a spend against a mandate's policy. Panics (aborting the transaction)

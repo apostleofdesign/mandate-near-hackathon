@@ -4,7 +4,7 @@
 // requester here (sub-bounties a decomposed task to specialist agents) and a
 // bidder on a larger task elsewhere — delegation composes.
 
-use near_sdk::store::LookupMap;
+use near_sdk::store::{LookupMap, Vector};
 use near_sdk::{env, near, AccountId, NearToken, PanicOnDefault, Promise};
 
 pub type TaskId = u64;
@@ -44,6 +44,9 @@ pub struct Task {
 #[derive(PanicOnDefault)]
 pub struct TaskMarket {
     pub tasks: LookupMap<TaskId, Task>,
+    /// Every posted task id, in post order — lets `list_tasks` page through
+    /// the board without an indexer. `LookupMap` alone has no iteration.
+    pub task_ids: Vector<TaskId>,
     pub next_id: TaskId,
 }
 
@@ -51,7 +54,7 @@ pub struct TaskMarket {
 impl TaskMarket {
     #[init]
     pub fn new() -> Self {
-        Self { tasks: LookupMap::new(b"t"), next_id: 0 }
+        Self { tasks: LookupMap::new(b"t"), task_ids: Vector::new(b"i"), next_id: 0 }
     }
 
     /// Post a bounty. The attached deposit becomes the budget and sits in the
@@ -75,7 +78,19 @@ impl TaskMarket {
                 delivery_hash: None,
             },
         );
+        self.task_ids.push(id);
         id
+    }
+
+    /// Page through the whole board, oldest-first by post order. Used by the
+    /// marketplace UI and by worker agents polling for open work.
+    pub fn list_tasks(&self, from_index: u64, limit: u64) -> Vec<Task> {
+        self.task_ids
+            .iter()
+            .skip(from_index as usize)
+            .take(limit as usize)
+            .filter_map(|id| self.tasks.get(id).cloned())
+            .collect()
     }
 
     pub fn bid(&mut self, task_id: TaskId, price: NearToken, note: String) {
