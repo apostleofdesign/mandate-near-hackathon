@@ -1,31 +1,42 @@
-// Home: Mandate is the permission primitive. Everything else on this site is
-// a surface built on top of it — Hire a Swarm is the flagship, Checkout is a
-// second working surface, Developers is the integration guide proving it's
-// reusable infra, not a one-off feature.
+// Home: Mandate is the permission primitive. Hire a Swarm is the flagship
+// surface built on it; Developers is the integration guide proving it's
+// reusable infra, not a one-off feature. This page also doubles as the
+// Mandate dashboard — every mandate's live spend vs. cap, fed by list_mandates.
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { getWallet, MANDATE_CONTRACT_ID, TASK_MARKET_CONTRACT_ID, CHECKOUT_CONTRACT_ID } from "../lib/near";
+import { getWallet, getMandateContract, MANDATE_CONTRACT_ID, TASK_MARKET_CONTRACT_ID } from "../lib/near";
+import { toNear } from "../lib/format";
 import type { WalletConnection } from "near-api-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   RiShieldCheckLine,
-  RiArrowRightLine,
   RiWalletLine,
   RiCheckboxCircleFill,
   RiGroupLine,
-  RiShoppingBag3Line,
   RiToolsLine,
 } from "@remixicon/react";
+
+type Mandate = {
+  id: number;
+  owner: string;
+  issuer: string;
+  daily_cap: string;
+  spent_today: string;
+  allowed_contracts: string[];
+  expires_at: number;
+  revoked: boolean;
+};
 
 const CONTRACTS = [
   { label: "Mandate", id: MANDATE_CONTRACT_ID, required: true },
   { label: "Task Market", id: TASK_MARKET_CONTRACT_ID, required: true },
-  { label: "Checkout", id: CHECKOUT_CONTRACT_ID, required: false },
 ];
 
 const SURFACES = [
@@ -43,18 +54,12 @@ const SURFACES = [
     desc: "Integrate Mandate into your own NEAR app in two calls.",
     primary: false,
   },
-  {
-    href: "/store",
-    icon: RiShoppingBag3Line,
-    title: "Checkout demo",
-    desc: "Universal checkout, gated by the same mandate.",
-    primary: false,
-  },
 ];
 
 export default function Home() {
   const [wallet, setWallet] = useState<WalletConnection | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
+  const [mandates, setMandates] = useState<Mandate[] | null>(null);
 
   useEffect(() => {
     getWallet().then((w) => {
@@ -62,6 +67,24 @@ export default function Home() {
       setAccountId(w.isSignedIn() ? w.getAccountId() : null);
     });
   }, []);
+
+  const refreshMandates = useCallback(async () => {
+    if (!wallet) return;
+    try {
+      const mandate = await getMandateContract(wallet);
+      // @ts-expect-error near-api-js Contract view methods are attached dynamically
+      const result: Mandate[] = await mandate.list_mandates({ from_index: 0, limit: 50 });
+      setMandates(result.slice().reverse());
+    } catch {
+      // Mandate isn't deployed/configured yet — show an empty state instead
+      // of an unhandled rejection. See README "Run it" to deploy it.
+      setMandates([]);
+    }
+  }, [wallet]);
+
+  useEffect(() => {
+    if (wallet) refreshMandates();
+  }, [wallet, refreshMandates]);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-10 px-6 py-16">
@@ -77,7 +100,7 @@ export default function Home() {
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         {SURFACES.map((s) => (
           <Button
             key={s.href}
@@ -111,6 +134,53 @@ export default function Home() {
 
       <Card>
         <CardHeader>
+          <CardTitle className="text-sm">Mandates</CardTitle>
+          <CardDescription>Live spend vs. cap, straight from list_mandates — no indexer.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {mandates === null && (
+            <div className="flex flex-col gap-3">
+              <Skeleton className="h-14 w-full rounded-lg" />
+              <Skeleton className="h-14 w-full rounded-lg" />
+            </div>
+          )}
+          {mandates !== null && mandates.length === 0 && (
+            <p className="text-sm text-muted-foreground">No mandates issued yet.</p>
+          )}
+          {mandates?.map((m) => {
+            const cap = BigInt(m.daily_cap);
+            const spent = BigInt(m.spent_today);
+            const pct = cap > 0n ? Number((spent * 100n) / cap) : 0;
+            const expired = m.expires_at !== 0 && m.expires_at < Date.now() * 1_000_000;
+            const dead = m.revoked || expired;
+            return (
+              <div key={m.id} className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="truncate font-medium">#{m.id} — {m.owner}</span>
+                  {m.revoked ? (
+                    <Badge variant="destructive">revoked</Badge>
+                  ) : expired ? (
+                    <Badge variant="secondary">expired</Badge>
+                  ) : (
+                    <Badge variant="outline">{pct}% of cap</Badge>
+                  )}
+                </div>
+                <Progress
+                  value={Math.min(pct, 100)}
+                  className={dead ? "opacity-40" : pct > 80 ? "[&_[data-slot=progress-indicator]]:bg-destructive" : undefined}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {toNear(m.spent_today)} / {toNear(m.daily_cap)} NEAR today
+                  {m.allowed_contracts.length > 0 && ` · allow-listed: ${m.allowed_contracts.join(", ")}`}
+                </span>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle className="text-sm">Contracts</CardTitle>
           <CardDescription>Fill these in once deployed — see README &ldquo;Run it&rdquo;.</CardDescription>
         </CardHeader>
@@ -125,19 +195,6 @@ export default function Home() {
               )}
             </div>
           ))}
-        </CardContent>
-      </Card>
-
-      <Card className="border-dashed">
-        <CardHeader>
-          <CardTitle className="text-sm">TODO</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ul className="list-disc space-y-1.5 pl-4 text-sm text-muted-foreground">
-            <li>Live spend-vs-cap bar per mandate on this page, fed by list_mandates.</li>
-            <li>Wire a real LLM call into agents/worker.ts's runWork.</li>
-            <li>Verify the cross-chain Intents branch in the checkout widget against live docs.</li>
-          </ul>
         </CardContent>
       </Card>
     </main>

@@ -4,13 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "shop": "tsx src/shopping-agent.ts",
     "coordinator": "tsx src/coordinator.ts",
     "worker": "tsx src/worker.ts",
     "guard": "tsx src/guard.ts"
   },
   "dependencies": {
-    "near-api-js": "^5.0.1"
+    "near-api-js": "^5.0.1",
+    "openai": "^4.68.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

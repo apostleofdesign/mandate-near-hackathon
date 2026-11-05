@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["mandate", "task-market", "checkout"]
+members = ["mandate", "task-market"]

@@ -1,11 +1,12 @@
 // A specialist worker agent: watches the Task Market for open tasks matching
 // its skill, bids, and on assignment delivers a result hash — real contract
-// calls end to end, same as shopping-agent.ts. The only stubbed part is the
-// work product itself (runWork), left deterministic so the demo doesn't need
-// an LLM API key to run.
+// calls end to end. The work product itself comes from a real NEAR AI Cloud
+// inference call (see llm.ts); that falls back to a deterministic stub on its
+// own if NEAR_AI_API_KEY isn't set, so this script needs no special-casing.
 //
-// Usage: NEAR_WORKER_ACCOUNT=researcher.mandate.testnet TASK_MARKET_CONTRACT_ID=market-dev.<you>.testnet WORKER_SKILL=research npm run worker
+// Usage: NEAR_WORKER_ACCOUNT=researcher.mandate.testnet TASK_MARKET_CONTRACT_ID=market-dev.<you>.testnet WORKER_SKILL=research NEAR_AI_API_KEY=... npm run worker
 import { connectAs } from "./near-client";
+import { runInference } from "./llm";
 import { createHash } from "crypto";
 
 const TASK_MARKET_CONTRACT_ID = process.env.TASK_MARKET_CONTRACT_ID ?? "";
@@ -59,7 +60,7 @@ async function main() {
       }
 
       if (task.status === "Assigned" && task.assignee === accountId && !delivered.has(task.id)) {
-        const result = await runWork(task.spec);
+        const result = await runInference(task.spec);
         const hash = createHash("sha256").update(result).digest("hex");
         await account.functionCall({
           contractId: TASK_MARKET_CONTRACT_ID,
@@ -74,11 +75,6 @@ async function main() {
 
     await sleep(POLL_MS);
   }
-}
-
-async function runWork(spec: string): Promise<string> {
-  // TODO: replace with a real call to an LLM API using the task spec as the prompt.
-  return `stub result for: ${spec}`;
 }
 
 function sleep(ms: number): Promise<void> {

@@ -1,6 +1,6 @@
 // Dev tools: Mandate isn't a feature bolted onto one app — it's a standalone
 // permission contract any NEAR app can gate spending through, the same way
-// both Checkout and Task Market do. This page is the integration guide.
+// Task Market does. This page is the integration guide.
 import { RiToolsLine } from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -50,8 +50,8 @@ export default function DevelopersPage() {
         </Badge>
         <h1 className="font-heading text-2xl font-medium tracking-tight">Build on Mandate</h1>
         <p className="max-w-xl text-sm text-muted-foreground">
-          Mandate is a standalone NEAR contract, not a Checkout feature. Hire a Swarm and Checkout
-          both gate spending through the exact same two calls below — your app can too, instead of
+          Mandate is a standalone NEAR contract, not a feature baked into one app. Hire a Swarm gates
+          every job's budget through the exact same two calls below — your app can too, instead of
           writing its own spend-limit logic from scratch.
         </p>
       </div>
@@ -73,8 +73,7 @@ export default function DevelopersPage() {
       <section className="flex flex-col gap-4">
         <h2 className="text-sm font-semibold">TypeScript — near-api-js</h2>
         <p className="text-sm text-muted-foreground">
-          The exact pattern <code className="rounded bg-muted px-1 py-0.5 text-xs">agents/src/shopping-agent.ts</code> and{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">agents/src/coordinator.ts</code> both use.
+          The exact pattern <code className="rounded bg-muted px-1 py-0.5 text-xs">agents/src/coordinator.ts</code> uses.
         </p>
         <CodeBlock
           lang="typescript"
@@ -135,10 +134,10 @@ near view $MANDATE_CONTRACT_ID get_mandate '{"id": 0}'`}
       <section className="flex flex-col gap-2 rounded-xl border border-dashed p-5">
         <h2 className="text-sm font-semibold">Who else is already building on it</h2>
         <p className="text-sm text-muted-foreground">
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">contracts/checkout</code> (merchant payments) and{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">contracts/task-market</code> (Hire a Swarm) are both
-          independent contracts that gate spending through Mandate using only the pattern above —
-          neither one imports or calls into the other. That decoupling is the point: your app can be the third.
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">contracts/task-market</code> (Hire a Swarm) gates
+          every job's budget through Mandate using only the pattern above — it never imports or calls into Mandate
+          beyond that one <code className="rounded bg-muted px-1 py-0.5 text-xs">authorize_spend</code> call. That
+          decoupling is the point: your app can be the second.
         </p>
       </section>
     </main>

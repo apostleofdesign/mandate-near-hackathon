@@ -36,8 +36,7 @@ async function main() {
 
   for (const sub of subtasks) {
     // Fails closed here if the mandate is revoked, expired, over cap, or
-    // TASK_MARKET_CONTRACT_ID isn't on its allow-list — same gate every
-    // other surface (checkout included) goes through.
+    // TASK_MARKET_CONTRACT_ID isn't on its allow-list.
     await account.functionCall({
       contractId: MANDATE_CONTRACT_ID,
       methodName: "authorize_spend",

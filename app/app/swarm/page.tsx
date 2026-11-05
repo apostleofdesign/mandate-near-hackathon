@@ -1,8 +1,7 @@
 // Hire a Swarm: the marketplace surface over contracts/task-market. Post a
 // job with a budget, watch worker agents bid (run `npm run worker` in
 // agents/ with a WORKER_SKILL to hire specialists), assign a bid, accept and
-// settle once delivered. Every action here is a real contract call — same
-// pattern as the checkout widget, just pointed at Task Market instead.
+// settle once delivered. Every action here is a real contract call.
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -16,6 +15,7 @@ import {
   RiCheckboxCircleFill,
 } from "@remixicon/react";
 import { getWallet, getTaskMarketContract, MANDATE_CONTRACT_ID } from "../../lib/near";
+import { toYocto, toNear } from "../../lib/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -45,22 +45,6 @@ const STATUS_VARIANT: Record<TaskStatus, "default" | "secondary" | "destructive"
   Settled: "outline",
   Cancelled: "destructive",
 };
-
-const YOCTO_PER_NEAR = 10n ** 24n;
-
-function toYocto(near: string): string {
-  const [whole, frac = ""] = near.split(".");
-  const fracPadded = (frac + "0".repeat(24)).slice(0, 24);
-  return (BigInt(whole || "0") * YOCTO_PER_NEAR + BigInt(fracPadded || "0")).toString();
-}
-
-function toNear(yocto: string): string {
-  const v = BigInt(yocto);
-  const whole = v / YOCTO_PER_NEAR;
-  const frac = v % YOCTO_PER_NEAR;
-  const fracStr = frac.toString().padStart(24, "0").replace(/0+$/, "");
-  return fracStr ? `${whole}.${fracStr}` : whole.toString();
-}
 
 export default function SwarmPage() {
   const [wallet, setWallet] = useState<WalletConnection | null>(null);
