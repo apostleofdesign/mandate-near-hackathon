@@ -1,58 +1,54 @@
 # Architecture
 
+## The checkout flow (the flagship)
+
 ```
-            funds (NEAR Intents, any chain)
-                      |
-                      v
-   human  --issue_mandate-->  COORDINATOR agent
-                                |   ^
-                       sub-bounty | | sub-bounty result
-                     (post_task) |   | (deliver)
-                                v   |
-                        TASK MARKET contract
-                           ^           |
-                    bid /  |           | assign / accept_and_settle
-                    deliver|           v
-                     WORKER agent(s) <--+
-
-   MANDATE REGISTRY contract
-     - every spend (coordinator -> task market, requester -> worker) is
-       checked by authorize_spend before it's allowed to proceed
-     - GUARD agent polls spend velocity per mandate and calls revoke()
-       independently of the issuer the moment something looks wrong
+  customer's chain/asset                 NEAR
+  (ETH, SOL, USDC, ...)                   |
+         |                                |
+         v  1-Click quote + deposit       |
+    [ NEAR Intents solver network ] ------+
+                                           |
+                                           v
+                                   customer's NEAR account
+                                           |
+   if the payer is an agent:              |
+   MANDATE.authorize_spend(id, checkout, amount)  <-- fails closed: revoked /
+         |  (panics = nothing below runs)             expired / over cap /
+         v                                             target not allow-listed
+                                           |
+                                           v
+                              CHECKOUT.create_order(merchant, amount, memo)
+                              CHECKOUT.pay_order(order_id)  [attached deposit]
+                                           |
+                                           v
+                                   merchant's NEAR account
 ```
 
-## Why two contracts instead of one
+A **human** customer skips the Mandate step entirely — they're spending their own money, there's nothing to cap. An **AI agent** always goes through `authorize_spend` first. The widget (`app/components/CheckoutWidget.tsx`) and the headless demo (`agents/src/shopping-agent.ts`) both encode this same branch; the Checkout contract itself never knows or cares which kind of payer it just got paid by.
 
-`mandate` and `task-market` are deliberately separate:
+## Why Mandate and Checkout are separate contracts
 
-- **Mandate** is a general-purpose policy primitive — it doesn't know about tasks, bounties, or bidding. Anything an agent spends on (API calls, compute, another contract entirely) can be gated through it.
-- **Task Market** is one *consumer* of that primitive. A requester's spend into the market should be checked against their mandate the same way a coordinator's sub-bounty is — the market itself doesn't need to special-case who's paying.
+Same reasoning as the original design: **Mandate** is a general-purpose policy primitive that doesn't know about orders or merchants — anything an agent spends on can be gated through it. **Checkout** is one *consumer* of that primitive, and it stays usable by any payer, mandated or not, because it never calls into Mandate itself. The caller is responsible for calling `authorize_spend` first if it needs to; Checkout just has to answer "was this order paid, by whom, for how much" reliably.
 
-This also means the Mandate registry is independently useful for the **Autonomous Business** track framing (a company-of-one agent's entire treasury can sit behind one mandate) without duplicating the Task Market's logic.
-
-## Delegation chain (why this reads as a swarm, not one agent)
-
-1. A human funds a mandate for the **coordinator** with a daily cap (e.g. 5 NEAR/day) and no contract allow-list restriction beyond the task market.
-2. The coordinator receives a bounty ("write a market brief"), decomposes it into subtasks, and for each one: calls `authorize_spend` against its own mandate, then `post_task` on the market with that budget attached.
-3. Each **worker** agent bids under the subtask's budget; the coordinator (as that subtask's requester) assigns a winner.
-4. The worker delivers a result hash; the coordinator accepts, which pays the worker directly from the task's escrowed budget — the coordinator's mandate was only debited once, at posting time.
-5. The **guard** polls every mandate's `spent_today` against its `daily_cap` on an interval; a spend that eats more than half the remaining cap in one tick gets the mandate revoked, freezing the coordinator (or any worker with its own mandate) mid-swarm.
-
-## What's stubbed vs. real
+## What's real vs. what's a stub
 
 | Piece | State |
 | --- | --- |
 | `contracts/mandate` | Full logic: issue, authorize, revoke, day-rollover. Ready to build/deploy. |
-| `contracts/task-market` | Full logic: post, bid, assign, deliver, settle. Ready to build/deploy. |
-| `agents/coordinator.ts` | Real decomposition logic is a `TODO` (currently deterministic for reproducibility); contract calls are marked, not yet wired. |
-| `agents/worker.ts` | Bidding/polling loop and LLM call are `TODO`; hashing and structure are real. |
-| `agents/guard.ts` | Velocity math is real and unit-testable; mandate enumeration (needs an indexer or a `get_mandates_for_owner` view) is `TODO`. |
-| `app/` | Wallet connect and contract id wiring are real; mandate/task list views are `TODO`. |
+| `contracts/checkout` | Full logic: register merchant, create/pay/cancel order. Ready to build/deploy. |
+| `agents/src/shopping-agent.ts` | Real, wired end to end for the NEAR-direct path — this is the one script a judge should actually run. |
+| `app/components/CheckoutWidget.tsx` | Real for the NEAR-direct path. The cross-chain-via-Intents branch calls `app/lib/intents.ts`, which is a best-effort client against an unverified endpoint shape — flagged inline, needs a check against `docs.near-intents.org` before it's trustworthy. |
+| `app/app/store` | Real demo storefront page. |
+| `contracts/task-market`, `agents/src/{coordinator,worker,guard}.ts` | The swarm-for-hire stretch goal (see below) — logic for `task-market` is complete and buildable; the three agent scripts are structural scaffolds with the real decomposition/bidding/LLM calls still marked `TODO`. |
 
-## Stretch goals, in priority order
+## Stretch goal: swarm-for-hire
 
-1. Wire the three agent scripts to a real LLM (Claude) for decomposition and work product, replacing the deterministic stubs.
-2. `get_mandates_for_owner` / `get_open_tasks` view methods so the guard and dashboard don't need hardcoded ids.
-3. NEAR Intents funding flow: human funds the coordinator's mandate from any chain/asset in one step.
-4. Chain Signatures: let a worker settle a payout directly on another chain instead of native NEAR.
+Illia Polosukhin's hackathon post also asked for a "swarm-for-hire": post a bounty, anyone can add a new agent to the swarm by funding it with NEAR (which pays for its NEAR AI inference), with governance or AI review gating which agents get admitted. `contracts/task-market` plus the `coordinator`/`worker`/`guard` scripts are exactly that primitive, built in a prior iteration and kept in the repo — a coordinator agent, itself holding a Mandate, can sub-bounty pieces of a job to worker agents from its own capped treasury, with the same Guard watcher revoking anything that spends too fast. If time allows after the checkout flow is solid, this is the natural extension: it reuses Mandate as-is and adds a second surface for the same primitive, rather than a second, unrelated project.
+
+## Priority order for the remaining build days
+
+1. Deploy `mandate` and `checkout` to testnet dev accounts; confirm the full "Run it" sequence in the README actually reproduces, including the fail-closed revoke demo.
+2. Verify `app/lib/intents.ts` against the real 1-Click API docs and get one real cross-chain quote working, even if execution stays manual for the demo video.
+3. Record the demo: a human paying directly, then the shopping agent paying under a mandate, then revoking the mandate and showing the same script fail closed.
+4. Stretch, only if 1–3 are solid with days to spare: wire one real LLM call into `worker.ts` so the swarm stretch goal is more than a structural scaffold.

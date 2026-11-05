@@ -5,6 +5,7 @@ import { connect, keyStores, WalletConnection, Contract } from "near-api-js";
 export const NETWORK_ID = process.env.NEXT_PUBLIC_NEAR_NETWORK ?? "testnet";
 export const MANDATE_CONTRACT_ID = process.env.NEXT_PUBLIC_MANDATE_CONTRACT_ID ?? "";
 export const TASK_MARKET_CONTRACT_ID = process.env.NEXT_PUBLIC_TASK_MARKET_CONTRACT_ID ?? "";
+export const CHECKOUT_CONTRACT_ID = process.env.NEXT_PUBLIC_CHECKOUT_CONTRACT_ID ?? "";
 
 const CONFIG = {
   networkId: NETWORK_ID,
@@ -31,6 +32,14 @@ export async function getTaskMarketContract(wallet: WalletConnection) {
   return new Contract(wallet.account(), TASK_MARKET_CONTRACT_ID, {
     viewMethods: ["get_task"],
     changeMethods: ["post_task", "bid", "assign", "deliver", "accept_and_settle"],
+    useLocalViewExecution: false,
+  });
+}
+
+export async function getCheckoutContract(wallet: WalletConnection) {
+  return new Contract(wallet.account(), CHECKOUT_CONTRACT_ID, {
+    viewMethods: ["get_order", "get_merchant"],
+    changeMethods: ["register_merchant", "create_order", "pay_order", "cancel_order"],
     useLocalViewExecution: false,
   });
 }

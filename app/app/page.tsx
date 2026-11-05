@@ -4,7 +4,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getWallet, MANDATE_CONTRACT_ID, TASK_MARKET_CONTRACT_ID } from "../lib/near";
+import Link from "next/link";
+import { getWallet, MANDATE_CONTRACT_ID, TASK_MARKET_CONTRACT_ID, CHECKOUT_CONTRACT_ID } from "../lib/near";
 import type { WalletConnection } from "near-api-js";
 
 export default function Home() {
@@ -20,12 +21,14 @@ export default function Home() {
 
   return (
     <main style={{ fontFamily: "ui-monospace, monospace", padding: 32, maxWidth: 720 }}>
-      <h1>Mandate</h1>
-      <p>Policy-governed agent marketplace — NEAR HACKATHON.</p>
+      <h1>Mandate Checkout</h1>
+      <p>A universal checkout widget, built so it works identically for a human paying their own funds and an AI agent spending under a capped, revocable permission — NEAR HACKATHON.</p>
       <p>
         Mandate contract: <code>{MANDATE_CONTRACT_ID || "not configured"}</code>
         <br />
-        Task Market contract: <code>{TASK_MARKET_CONTRACT_ID || "not configured"}</code>
+        Checkout contract: <code>{CHECKOUT_CONTRACT_ID || "not configured"}</code>
+        <br />
+        Task Market contract (swarm stretch goal): <code>{TASK_MARKET_CONTRACT_ID || "not configured"}</code>
       </p>
       {accountId ? (
         <p>Signed in as {accountId}.</p>
@@ -34,12 +37,13 @@ export default function Home() {
           Connect wallet
         </button>
       )}
+      <p><Link href="/store">→ Try the demo storefront</Link></p>
       <section>
         <h2>TODO</h2>
         <ul>
           <li>List mandates for the connected account via get_mandate.</li>
-          <li>List open tasks on the Task Market and their bids.</li>
           <li>Live spend-vs-cap bar per mandate, fed by the Guard watcher.</li>
+          <li>Order history view fed by Checkout's get_order.</li>
         </ul>
       </section>
     </main>

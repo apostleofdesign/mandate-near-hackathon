@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "shop": "tsx src/shopping-agent.ts",
     "coordinator": "tsx src/coordinator.ts",
     "worker": "tsx src/worker.ts",
     "guard": "tsx src/guard.ts"
