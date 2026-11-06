@@ -22,7 +22,15 @@ export function getConnector(): NearConnector {
   return connectorSingleton;
 }
 
-const provider = new providers.JsonRpcProvider({ url: `https://rpc.${NETWORK_ID}.near.org` });
+// The official rpc.<network>.near.org gateway measured 3.5-3.8s per call in
+// testing here — FastNEAR's public RPC answers the same JSON-RPC interface
+// in well under a second. That gap was most of this app's "slow to load"
+// feeling, not React or the network to the browser.
+const RPC_URL =
+  process.env.NEXT_PUBLIC_NEAR_RPC_URL ??
+  (NETWORK_ID === "mainnet" ? "https://rpc.mainnet.fastnear.com" : "https://rpc.testnet.fastnear.com");
+
+const provider = new providers.JsonRpcProvider({ url: RPC_URL });
 
 // View calls need no wallet — read straight off the RPC, same as the agents'
 // `Account.viewFunction` but from the browser via raw provider.query.

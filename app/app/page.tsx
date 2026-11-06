@@ -85,24 +85,14 @@ export default function Home() {
   const [tasks, setTasks] = useState<Task[] | null>(null);
 
   const refresh = useCallback(async () => {
-    try {
-      const result = await viewFunction<Mandate[]>(MANDATE_CONTRACT_ID, "list_mandates", {
-        from_index: 0,
-        limit: 50,
-      });
-      setMandates(result.slice().reverse());
-    } catch {
-      setMandates([]);
-    }
-    try {
-      const result = await viewFunction<Task[]>(TASK_MARKET_CONTRACT_ID, "list_tasks", {
-        from_index: 0,
-        limit: 50,
-      });
-      setTasks(result);
-    } catch {
-      setTasks([]);
-    }
+    // Both reads are independent — fire them together instead of waiting on
+    // one RPC round trip before starting the next.
+    const [mandatesResult, tasksResult] = await Promise.allSettled([
+      viewFunction<Mandate[]>(MANDATE_CONTRACT_ID, "list_mandates", { from_index: 0, limit: 50 }),
+      viewFunction<Task[]>(TASK_MARKET_CONTRACT_ID, "list_tasks", { from_index: 0, limit: 50 }),
+    ]);
+    setMandates(mandatesResult.status === "fulfilled" ? mandatesResult.value.slice().reverse() : []);
+    setTasks(tasksResult.status === "fulfilled" ? tasksResult.value : []);
   }, []);
 
   useEffect(() => {

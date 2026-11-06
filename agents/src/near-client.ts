@@ -9,9 +9,13 @@ export async function connectAs(_accountId: string): Promise<Near> {
     path.join(homedir(), ".near-credentials")
   );
   const networkId = process.env.NEAR_NETWORK ?? "testnet";
+  // FastNEAR's public RPC answers the same JSON-RPC interface several times
+  // faster than rpc.<network>.near.org in practice — matters for the Guard's
+  // poll loop and for the worker/coordinator's responsiveness.
+  const nodeUrl = process.env.NEAR_RPC_URL ?? `https://rpc.${networkId}.fastnear.com`;
   return connect({
     networkId,
     keyStore,
-    nodeUrl: `https://rpc.${networkId}.near.org`,
+    nodeUrl,
   });
 }
