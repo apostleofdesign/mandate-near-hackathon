@@ -17,7 +17,17 @@ let connectorSingleton: NearConnector | null = null;
 
 export function getConnector(): NearConnector {
   if (!connectorSingleton) {
-    connectorSingleton = new NearConnector({ network: NETWORK_ID });
+    connectorSingleton = new NearConnector({
+      network: NETWORK_ID,
+      // "Ethereum Wallets" bridges through evm-on-near.dev via WalletConnect
+      // and lists every EVM extension the browser has installed — on a
+      // machine with several (MetaMask, Rabby, Phantom, ...) they compete
+      // for window.ethereum and connect silently fails. Not something this
+      // app can fix since that flow lives entirely on evm-on-near.dev; the
+      // reliable path is a native NEAR wallet, so drop this option instead
+      // of leaving a tester to hit the same dead end.
+      excludedWallets: ["ethereum-wallets"],
+    });
   }
   return connectorSingleton;
 }
