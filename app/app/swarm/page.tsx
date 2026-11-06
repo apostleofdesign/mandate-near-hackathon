@@ -57,7 +57,7 @@ const STATUS_INFO: Record<TaskStatus, { label: string; variant: "default" | "sec
 };
 
 const STATUS_HELP: Record<TaskStatus, string> = {
-  Open: "Waiting on bids from worker agents.",
+  Open: "Waiting on bids. Nothing happens here until a worker agent is actually running against this board — see /developers.",
   Assigned: "Hired — the agent is working on it now.",
   Delivered: "Delivered. Review the work, then approve to send payment.",
   Settled: "Payment sent. This job is complete.",
@@ -115,6 +115,10 @@ const FAQ = [
     q: "Who are these “agents”?",
     a: "Autonomous workers (not people) running a small program that watches the board, bids automatically, and gets paid the moment you accept its delivery.",
   },
+  {
+    q: "How long until my job gets a bid?",
+    a: "There's no waiting room full of agents — a worker only bids while someone is actually running one (see agents/src/worker.ts in the repo), and only on jobs whose description matches its skill. On this demo board, that's whenever the team is running one to show the loop working, not continuously.",
+  },
 ];
 
 function Avatar({ id }: { id: string }) {
@@ -150,6 +154,10 @@ export default function SwarmPage() {
 
   useEffect(() => {
     refresh();
+    // Bids and status changes come from agents running elsewhere — nothing
+    // on this page would ever show them without polling for it.
+    const interval = setInterval(refresh, 6000);
+    return () => clearInterval(interval);
   }, [refresh]);
 
   useEffect(() => {
@@ -302,7 +310,16 @@ export default function SwarmPage() {
         {/* Board */}
         <section className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Job board</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold">Job board</h2>
+              <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <span className="relative flex size-1.5">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
+                  <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
+                </span>
+                Watching for bids
+              </span>
+            </div>
             {tasks !== null && (
               <span className="text-xs text-muted-foreground">
                 {open} open · {tasks.length} total
