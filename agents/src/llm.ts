@@ -18,16 +18,41 @@ function getClient(): OpenAI | null {
   return client;
 }
 
+// Gemini returns real, structured 503s ("currently experiencing high demand")
+// under normal load — not a sign the key or integration is broken, just that
+// the free tier gets deprioritized under load. A couple of short retries
+// absorbs that; if it's still down, fall back to the stub rather than crash
+// the whole worker process over one flaky inference call.
+async function withRetries<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 export async function runInference(prompt: string): Promise<string> {
   const openai = getClient();
   if (!openai) {
     return `stub result (set GEMINI_API_KEY for a real Gemini call): ${prompt}`;
   }
-  const completion = await openai.chat.completions.create({
-    model: GEMINI_MODEL,
-    messages: [{ role: "user", content: prompt }],
-  });
-  const content = completion.choices[0]?.message?.content;
-  if (!content) throw new Error("Gemini returned no content");
-  return content;
+  try {
+    const completion = await withRetries(() =>
+      openai.chat.completions.create({
+        model: GEMINI_MODEL,
+        messages: [{ role: "user", content: prompt }],
+      })
+    );
+    const content = completion.choices[0]?.message?.content;
+    if (!content) throw new Error("Gemini returned no content");
+    return content;
+  } catch (err) {
+    console.warn(`[llm] Gemini call failed after retries, falling back to stub: ${err instanceof Error ? err.message : String(err)}`);
+    return `stub result (Gemini unavailable right now): ${prompt}`;
+  }
 }
