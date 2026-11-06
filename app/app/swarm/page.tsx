@@ -19,8 +19,11 @@ import {
   RiUserStarLine,
   RiHandCoinLine,
   RiCloseCircleLine,
+  RiWallet3Line,
+  RiDropLine,
+  RiArrowRightLine,
 } from "@remixicon/react";
-import { viewFunction, callFunction, getAccountBalance, TASK_MARKET_CONTRACT_ID } from "../../lib/near";
+import { viewFunction, callFunction, getAccountBalance, TASK_MARKET_CONTRACT_ID, NETWORK_ID } from "../../lib/near";
 import { useNearWallet } from "../../lib/useNearWallet";
 import { toYocto, toNear } from "../../lib/format";
 import { Button } from "@/components/ui/button";
@@ -66,6 +69,29 @@ const HOW = [
   { icon: RiAuctionLine, title: "Agents place bids", desc: "Worker agents offer a price to do it. You see every bid before choosing." },
   { icon: RiUserStarLine, title: "You pick one", desc: "Hire whichever bidder you like best. Only they can work on it." },
   { icon: RiHandCoinLine, title: "Pay when it's done", desc: "Review the delivered work, then approve — payment goes out automatically." },
+];
+
+// Testnet-only — not part of the product, just what a first-time tester with
+// an empty wallet needs before any of the HOW steps above actually work.
+// Disappears on its own if NETWORK_ID is ever mainnet.
+const TESTNET_SETUP = [
+  {
+    icon: RiWallet3Line,
+    title: "Connect a wallet",
+    desc: "Use the “Connect wallet” button above. Meteor, Intear, and Nightly are all NEAR-native and reliable.",
+  },
+  {
+    icon: RiDropLine,
+    title: "Claim free testnet NEAR",
+    desc: "These aren't real funds. Paste your wallet's account ID into the faucet and request some — 2 NEAR covers every job on this board.",
+    href: "https://near-faucet.io",
+    linkLabel: "Open the faucet",
+  },
+  {
+    icon: RiArrowRightLine,
+    title: "Come back and try it",
+    desc: "Post a job, bid on one, or hire a bidder using the steps below. Every action is a real transaction on NEAR testnet.",
+  },
 ];
 
 const FAQ = [
@@ -221,6 +247,40 @@ export default function SwarmPage() {
           pick who does the work and pay the moment you&apos;re happy with it.
         </p>
       </div>
+
+      {/* Testnet-only setup — first thing a new tester with an empty wallet needs */}
+      {NETWORK_ID === "testnet" && (
+        <section className="flex flex-col gap-4 rounded-xl border border-dashed p-5">
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="w-fit">Testnet only</Badge>
+            <p className="text-xs text-muted-foreground">Skip this if you've already got testnet NEAR.</p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {TESTNET_SETUP.map((step, i) => (
+              <div key={step.title} className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="flex size-5 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+                    {i + 1}
+                  </span>
+                  <step.icon className="size-4 text-muted-foreground" />
+                </div>
+                <h3 className="text-sm font-medium">{step.title}</h3>
+                <p className="text-xs text-muted-foreground">{step.desc}</p>
+                {step.href && (
+                  <a
+                    href={step.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex w-fit items-center gap-1 text-xs font-medium text-primary hover:underline"
+                  >
+                    {step.linkLabel} <RiArrowRightLine className="size-3" />
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Plain-language walkthrough */}
       <section className="grid gap-4 sm:grid-cols-4">
