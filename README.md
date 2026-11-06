@@ -7,7 +7,7 @@ Mandate is infrastructure, not one app's feature. This repo ships two surfaces b
 - **Hire a Swarm** (`/swarm`) — the flagship: post a job, worker agents bid, you assign and settle on-chain.
 - **Developers** (`/developers`) — the integration guide: how any NEAR app gates spending through Mandate in two calls.
 
-Tracks: **Agent Economy** (`agents`) · **AI Swarms** (`swarms`) · **AI Security & Defense** (`security`) · fits **Autonomous Business** (`business`)
+Tracks: **AI Security & Defense** (`security`, primary) · **Agent Economy** (`agents`) · **AI Swarms** (`swarms`)
 
 ## Live on testnet
 
