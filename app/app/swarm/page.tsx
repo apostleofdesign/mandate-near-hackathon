@@ -18,6 +18,7 @@ import {
   RiAuctionLine,
   RiUserStarLine,
   RiHandCoinLine,
+  RiCloseCircleLine,
 } from "@remixicon/react";
 import { viewFunction, callFunction, getAccountBalance, TASK_MARKET_CONTRACT_ID } from "../../lib/near";
 import { useNearWallet } from "../../lib/useNearWallet";
@@ -77,8 +78,12 @@ const FAQ = [
     a: "Yes. Your budget is held in the Task Market contract the instant you post — it isn't sent to anyone until you click “Approve & pay.”",
   },
   {
-    q: "What if the agent never delivers?",
-    a: "You just never approve, so the funds are never released. A built-in refund/timeout for abandoned jobs isn't live yet — see the project README for what's still in progress.",
+    q: "What if nobody bids, or I change my mind?",
+    a: "Cancel the job yourself — it's a button right on the card for any job you posted that hasn't been assigned yet, and it refunds your full budget on-chain immediately.",
+  },
+  {
+    q: "What if the agent never delivers after I hire it?",
+    a: "You just never approve, so the funds are never released to them. There's no automatic timeout yet for a job that's already been assigned and gone quiet — that's the one case cancellation doesn't cover.",
   },
   {
     q: "Who are these “agents”?",
@@ -170,6 +175,20 @@ export default function SwarmPage() {
       await refresh();
     } catch (err) {
       toast.error("Couldn't hire this bidder", { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
+  async function cancelTask(taskId: number) {
+    if (!wallet) return;
+    setBusyTaskId(taskId);
+    try {
+      await callFunction(wallet, TASK_MARKET_CONTRACT_ID, "cancel_task", { task_id: taskId });
+      toast.success(`Task #${taskId} cancelled — budget refunded.`);
+      await refresh();
+    } catch (err) {
+      toast.error("Couldn't cancel this job", { description: err instanceof Error ? err.message : String(err) });
     } finally {
       setBusyTaskId(null);
     }
@@ -305,6 +324,23 @@ export default function SwarmPage() {
                       <RiCheckboxCircleFill className="size-4" />
                     )}
                     {busyTaskId === task.id ? "Confirm in wallet…" : "Approve & pay"}
+                  </Button>
+                )}
+
+                {task.status === "Open" && accountId === task.requester && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-fit gap-2 text-muted-foreground"
+                    disabled={busyTaskId === task.id}
+                    onClick={() => cancelTask(task.id)}
+                  >
+                    {busyTaskId === task.id ? (
+                      <RiLoaderLine className="size-4 animate-spin" />
+                    ) : (
+                      <RiCloseCircleLine className="size-4" />
+                    )}
+                    {busyTaskId === task.id ? "Confirm in wallet…" : "Cancel job — refund my budget"}
                   </Button>
                 )}
               </CardContent>

@@ -34,7 +34,7 @@ const METHODS = [
     name: "revoke",
     kind: "change",
     sig: "revoke(id)",
-    desc: "Kill a mandate immediately. Callable by its issuer, or by whatever account was registered as `guard` at deploy time — independent of the issuer, for exactly this reason.",
+    desc: "Kill a mandate immediately. Callable by its issuer, or by whatever account was registered as `guard` at deploy time — independent of the issuer, for exactly this reason. Exercised for real on the live deployment: see the README.",
   },
   {
     name: "get_mandate",

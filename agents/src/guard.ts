@@ -53,12 +53,13 @@ async function main() {
     for (const m of mandates) {
       if (looksAnomalous(m)) {
         console.log(`[guard] mandate #${m.id} spend velocity over ${VELOCITY_THRESHOLD_PCT}% of cap — revoking`);
-        await account.functionCall({
+        const outcome = await account.functionCall({
           contractId: MANDATE_CONTRACT_ID,
           methodName: "revoke",
           args: { id: m.id },
           gas: 30_000_000_000_000n,
         });
+        console.log(`[guard] mandate #${m.id} revoked — tx https://explorer.testnet.near.org/transactions/${outcome.transaction.hash}`);
       }
     }
 

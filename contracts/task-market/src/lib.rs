@@ -123,9 +123,9 @@ impl TaskMarket {
         self.tasks.insert(task_id, task);
     }
 
-    /// Requester accepts delivery; the winning bid amount pays out to the assignee
-    /// immediately, any remainder of the budget stays claimable by the requester
-    /// via `cancel` logic in a later revision.
+    /// Requester accepts delivery: the winning bid pays out to the assignee, and
+    /// any unspent remainder of the budget (budget minus the winning bid) returns
+    /// to the requester in the same transaction — nothing is left stranded.
     pub fn accept_and_settle(&mut self, task_id: TaskId) -> Promise {
         let mut task = self.tasks.get(&task_id).cloned().expect("no such task");
         assert_eq!(env::predecessor_account_id(), task.requester, "only the requester settles");
@@ -137,9 +137,31 @@ impl TaskMarket {
             .expect("missing winning bid")
             .clone();
         let assignee = task.assignee.clone().unwrap();
+        let requester = task.requester.clone();
+        let remainder = task.budget.as_yoctonear().saturating_sub(winning_bid.price.as_yoctonear());
         task.status = TaskStatus::Settled;
         self.tasks.insert(task_id, task);
-        Promise::new(assignee).transfer(winning_bid.price)
+        let payout = Promise::new(assignee).transfer(winning_bid.price);
+        if remainder > 0 {
+            payout.and(Promise::new(requester).transfer(NearToken::from_yoctonear(remainder)))
+        } else {
+            payout
+        }
+    }
+
+    /// Cancel a task that hasn't been assigned yet and refund the full budget to
+    /// the requester. Once a bid is assigned the job is underway, so cancellation
+    /// stops there — resolving what a working assignee is owed is a separate
+    /// decision the requester makes through `accept_and_settle`, not `cancel_task`.
+    pub fn cancel_task(&mut self, task_id: TaskId) -> Promise {
+        let mut task = self.tasks.get(&task_id).cloned().expect("no such task");
+        assert_eq!(env::predecessor_account_id(), task.requester, "only the requester cancels");
+        assert_eq!(task.status, TaskStatus::Open, "can only cancel a task with no assignee yet");
+        let requester = task.requester.clone();
+        let budget = task.budget;
+        task.status = TaskStatus::Cancelled;
+        self.tasks.insert(task_id, task);
+        Promise::new(requester).transfer(budget)
     }
 
     pub fn get_task(&self, task_id: TaskId) -> Option<Task> {

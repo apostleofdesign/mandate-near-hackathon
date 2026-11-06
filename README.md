@@ -16,7 +16,9 @@ Both contracts are deployed and the full loop has run for real — not simulated
 - `mandate-f70187.testnet` — [view on explorer](https://explorer.testnet.near.org/accounts/mandate-f70187.testnet)
 - `market-f70187.testnet` — [view on explorer](https://explorer.testnet.near.org/accounts/market-f70187.testnet)
 - Mandate `#0`: issued to `owner-f70187.testnet`, 0.5 NEAR daily cap, allow-listed to the market contract. Backed task `#0` (0.1 NEAR budget, "research: summarize NEAR AI Cloud pricing") end to end: `researcher-f70187.testnet` bid 0.08 NEAR, was assigned, delivered a real sha256-hashed work product, and got paid on `accept_and_settle` — [transaction](https://explorer.testnet.near.org/transactions/4QpQZgwmVRkhG1E8Jh6aziCUE85hL9ijrsgDG7h5ouHR).
-- Mandate `#1`: issued with a 1.5 NEAR cap to prove the guard has teeth. The coordinator agent posted one 1 NEAR sub-bounty (`authorize_spend` succeeded, mandate now sits at 66% of cap), then its *second* `authorize_spend` call for another 1 NEAR panicked with `daily cap exceeded` and the coordinator exited non-zero before a second sub-bounty was ever posted — the market only ever saw the one sub-bounty that actually fit.
+- Mandate `#1`: issued with a 1.5 NEAR cap to prove the cap has teeth. The coordinator agent posted one 1 NEAR sub-bounty (`authorize_spend` succeeded, mandate sat at 66% of cap), then its *second* `authorize_spend` call for another 1 NEAR panicked with `daily cap exceeded` and the coordinator exited non-zero before a second sub-bounty was ever posted.
+- **The Guard has actually force-revoked a live mandate — not simulated.** Mandate `#2` was issued fresh (0.4 NEAR cap, owner `researcher-f70187.testnet`) with the Guard watcher already running against the live contract. `researcher-f70187.testnet` then called `authorize_spend` for 0.3 NEAR — 75% of the cap in one call — and the Guard revoked it on its very next poll, a few seconds later, independently of the mandate's own issuer: [issue tx](https://explorer.testnet.near.org/transactions/A5iujBdzmajnZR3XMnbMTw6rGMvu5nbVkVx5EiKaGSev) → [revoke tx](https://explorer.testnet.near.org/transactions/G9KJkEyjQXwp46oWiHAJcz7i3iCeiT4sLxXabD8MYMaJ). `get_mandate({"id":2})` now shows `"revoked":true`. (Mandate `#1`'s pre-existing 66%-of-cap spend tripped the same Guard check independently, the instant the watcher started — a second, unplanned confirmation of the same code path.)
+- **`task-market` now has a real refund path — no stranded funds.** `cancel_task` refunds an unassigned task's full budget to the requester, and `accept_and_settle` now returns any unspent remainder (budget minus the winning bid) to the requester in the same transaction. Exercised live: task `#1` (1 NEAR budget, never bid on) was cancelled and its full budget returned to `owner-f70187.testnet` — [transaction](https://explorer.testnet.near.org/transactions/9cqdQA6GaqcpnRAVt3aZLw5x1TAZwYMGyf3q8wpa4G7n).
 
 ## The problem
 
@@ -27,7 +29,7 @@ Both contracts are deployed and the full loop has run for real — not simulated
 ## What we built
 
 - **`contracts/mandate`** — the permission primitive. Daily cap, optional contract allow-list, optional expiry, every spend checked and recorded on-chain before it's allowed to proceed. A `guard` account independent of whoever issued the mandate can force-revoke it the instant spend velocity looks wrong. `list_mandates` pages through every mandate issued, for the dashboard and the Guard watcher.
-- **`contracts/task-market`** — the swarm marketplace. A requester posts a bounty with a budget attached; agents bid; the requester assigns a winner; the winner delivers a result hash; accepting it pays the winning bid immediately. `list_tasks` pages through the whole board.
+- **`contracts/task-market`** — the swarm marketplace. A requester posts a bounty with a budget attached; agents bid; the requester assigns a winner; the winner delivers a result hash; accepting it pays the winning bid and refunds any unspent remainder in the same transaction. `cancel_task` refunds the full budget of a task nobody's been assigned to yet. `list_tasks` pages through the whole board.
 - **`app/app/swarm`** — **Hire a Swarm**, the marketplace UI over Task Market: post a job, watch bids come in, assign, accept & settle — every action a real contract call.
 - **`app/app/page.tsx`** — doubles as the Mandate dashboard: every mandate's live spend vs. daily cap, read straight from `list_mandates`, no indexer.
 - **`app/app/developers`** — **Build on Mandate**, the dev-tools page: the exact two-call pattern (`authorize_spend` then your own contract call) with TypeScript and near-cli snippets, and a reference table of every Mandate method.
@@ -113,7 +115,7 @@ TASK_MARKET_CONTRACT_ID=market-dev.<you>.testnet \
 MANDATE_ID=<the id just issued> \
 npm run coordinator "a one-page market brief"
 ```
-Expected result: `authorize_spend` panics with `daily cap exceeded` on the first subtask that doesn't fit — the script exits non-zero before a second sub-bounty is ever posted. The dashboard's Mandates panel shows that mandate's bar at (or near) 100%.
+Expected result: `authorize_spend` panics with `daily cap exceeded` on the first subtask that doesn't fit — the script exits non-zero before a second sub-bounty is ever posted. The dashboard's Mandates panel shows that mandate's bar at (or near) 100%. Separately, if the Guard is already running (`npm run guard`) when a mandate's spend jumps past the velocity threshold in one call, it force-revokes that mandate on its next poll — this has been exercised for real against the live deployment above, independent of this reproduction path.
 
 ## Disclosure (per `HACKATHON.md` Q-005 / Q-017)
 
