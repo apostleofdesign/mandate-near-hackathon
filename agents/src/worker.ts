@@ -5,14 +5,36 @@
 // that falls back to a deterministic stub on its own if GEMINI_API_KEY
 // isn't set, so this script needs no special-casing.
 //
-// Usage: NEAR_WORKER_ACCOUNT=researcher.mandate.testnet TASK_MARKET_CONTRACT_ID=market-dev.<you>.testnet WORKER_SKILL=research GEMINI_API_KEY=... npm run worker
+// Usage: NEAR_WORKER_ACCOUNT=researcher.mandate.testnet TASK_MARKET_CONTRACT_ID=market-dev.<you>.testnet WORKER_SKILL=research WORKER_PERSONA=researcher GEMINI_API_KEY=... npm run worker
 import { connectAs } from "./near-client";
 import { runInference } from "./llm";
 
 const TASK_MARKET_CONTRACT_ID = process.env.TASK_MARKET_CONTRACT_ID ?? "";
 const WORKER_SKILL = process.env.WORKER_SKILL ?? "generic";
+// Separate from WORKER_SKILL on purpose: WORKER_SKILL gates which jobs this
+// worker bids on (a literal substring match against the job text), while
+// WORKER_PERSONA only flavors its bid note and how it frames the prompt it
+// sends to the model — so a worker can bid broadly (WORKER_SKILL="") while
+// still writing in a distinct voice instead of every agent sounding the same.
+const WORKER_PERSONA = process.env.WORKER_PERSONA ?? WORKER_SKILL;
 const BID_FRACTION_PCT = BigInt(process.env.BID_FRACTION_PCT ?? "80"); // bid 80% of budget by default
 const POLL_MS = Number(process.env.POLL_MS ?? "4000");
+
+// A short style instruction per persona so agents actually read differently,
+// not just bid at different prices. Unlisted personas fall back to a plain
+// framing rather than failing.
+const PERSONA_STYLES: Record<string, string> = {
+  researcher: "You are a research agent. Answer with sourced, careful, slightly formal prose.",
+  writer: "You are a copywriter agent. Answer punchy, concise, and persuasive — no hedging.",
+  analyst: "You are an analyst agent. Answer with a structured breakdown, calling out tradeoffs.",
+  critic: "You are a critic agent. Answer skeptically — lead with the weakest point, then the rest.",
+  summarizer: "You are a summarizer agent. Answer in the fewest words that still fully cover it.",
+};
+
+function personaPrompt(persona: string, spec: string): string {
+  const style = PERSONA_STYLES[persona.toLowerCase()];
+  return style ? `${style}\n\nTask: ${spec}` : spec;
+}
 
 type TaskStatus = "Open" | "Assigned" | "Delivered" | "Settled" | "Cancelled";
 type Task = {
@@ -36,7 +58,7 @@ async function main() {
   const bidOn = new Set<number>();
   const delivered = new Set<number>();
 
-  console.log(`[worker:${WORKER_SKILL}] ${accountId} watching ${TASK_MARKET_CONTRACT_ID}`);
+  console.log(`[worker:${WORKER_PERSONA}] ${accountId} watching ${TASK_MARKET_CONTRACT_ID}`);
 
   while (true) {
     const tasks: Task[] = await account.viewFunction({
@@ -53,15 +75,15 @@ async function main() {
         await account.functionCall({
           contractId: TASK_MARKET_CONTRACT_ID,
           methodName: "bid",
-          args: { task_id: task.id, price: price.toString(), note: `${WORKER_SKILL} worker bid` },
+          args: { task_id: task.id, price: price.toString(), note: `${WORKER_PERSONA} worker bid` },
           gas: 30_000_000_000_000n,
         });
         bidOn.add(task.id);
-        console.log(`[worker:${WORKER_SKILL}] bid ${price}y on task #${task.id}: "${task.spec}"`);
+        console.log(`[worker:${WORKER_PERSONA}] bid ${price}y on task #${task.id}: "${task.spec}"`);
       }
 
       if (task.status === "Assigned" && task.assignee === accountId && !delivered.has(task.id)) {
-        const result = await runInference(task.spec);
+        const result = await runInference(personaPrompt(WORKER_PERSONA, task.spec));
         // The contract hashes this itself from the content on-chain now — no
         // need to compute or send a hash separately.
         await account.functionCall({
@@ -71,7 +93,7 @@ async function main() {
           gas: 30_000_000_000_000n,
         });
         delivered.add(task.id);
-        console.log(`[worker:${WORKER_SKILL}] delivered task #${task.id}: ${result.slice(0, 120)}${result.length > 120 ? "…" : ""}`);
+        console.log(`[worker:${WORKER_PERSONA}] delivered task #${task.id}: ${result.slice(0, 120)}${result.length > 120 ? "…" : ""}`);
       }
     }
 
