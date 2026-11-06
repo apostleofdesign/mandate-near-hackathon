@@ -22,6 +22,7 @@ Both contracts are deployed and the full loop has run for real — not simulated
 - **The Guard has actually force-revoked a live mandate — not simulated.** Mandate `#2` was issued fresh (0.4 NEAR cap, owner `researcher-f70187.testnet`) with the Guard watcher already running against the live contract. `researcher-f70187.testnet` then called `authorize_spend` for 0.3 NEAR — 75% of the cap in one call — and the Guard revoked it on its very next poll, a few seconds later, independently of the mandate's own issuer: [issue tx](https://explorer.testnet.near.org/transactions/A5iujBdzmajnZR3XMnbMTw6rGMvu5nbVkVx5EiKaGSev) → [revoke tx](https://explorer.testnet.near.org/transactions/G9KJkEyjQXwp46oWiHAJcz7i3iCeiT4sLxXabD8MYMaJ). `get_mandate({"id":2})` now shows `"revoked":true`. (Mandate `#1`'s pre-existing 66%-of-cap spend tripped the same Guard check independently, the instant the watcher started — a second, unplanned confirmation of the same code path.)
 - **`task-market` now has a real refund path — no stranded funds.** `cancel_task` refunds an unassigned task's full budget to the requester, and `accept_and_settle` now returns any unspent remainder (budget minus the winning bid) to the requester in the same transaction. Exercised live: task `#1` (1 NEAR budget, never bid on) was cancelled and its full budget returned to `owner-f70187.testnet` — [transaction](https://explorer.testnet.near.org/transactions/9cqdQA6GaqcpnRAVt3aZLw5x1TAZwYMGyf3q8wpa4G7n).
 - **The guard is now rotatable — and that's been exercised live too.** `mandate-f70187.testnet` was migrated in place (every existing mandate carried over byte-for-byte, verified before and after) to add an `owner` role (`owner-f70187.testnet`) that can call `set_guard` — [migration tx](https://explorer.testnet.near.org/transactions/oXBXUaeWPiMwr2hwbadeK5876P91X1Dpi1pM3uKs4n6). Then, for real: the guard was rotated to a different account, the *old* guard key's `revoke` call was tried and failed on-chain — [failed tx, as proof](https://explorer.testnet.near.org/transactions/PpQSxzNW3jJxnDcU7ZY4srnPM7TpdmhiJbsirw8Akef) — and the guard was rotated back. `get_guard` confirms `guard-f70187.testnet` is in control again.
+- **A real tester's run broke `accept_and_settle` — fixed, and re-verified live.** NEAR's protocol rejects a function that returns a joined `Promise` (`a.and(b)`) directly; `accept_and_settle` did exactly that whenever a job had a remainder to refund, and failed every time with no useful error beyond "there was an error" in the wallet. Fixed by not returning the joined promise — the transfers still schedule regardless. `task-market` now also stores the assignee's actual delivered content on-chain (`delivery_content`), not just a hash of it, and the hash is computed on-chain from that content instead of trusted from the caller. Migrating that shape change live surfaced a second, subtler bug — `LookupMap::insert` deserializes the *old* value as the *new* type to return it, which panics against old-shape bytes — fixed by migrating through raw `storage_read`/`storage_write` instead. All verified against the live contract: task `#4` was posted, bid on, assigned, delivered with real content, and the stored `delivery_hash` matches a local `sha256` of that content exactly.
 
 ## The problem
 
@@ -58,7 +59,7 @@ Everything else — the cap, the allow-list, the day rollover, who can revoke, t
 
 ## Status
 
-- `contracts/mandate` and `contracts/task-market` — full logic including `list_mandates`/`list_tasks` pagination, `cancel_task`, the settlement remainder refund, and a rotatable `guard` (`set_guard`, owner-gated); 21 unit tests (`cargo test`) cover the cap, allow-list, revoke-authorization, guard-rotation, and status-transition rules. Ready to build and deploy.
+- `contracts/mandate` and `contracts/task-market` — full logic including `list_mandates`/`list_tasks` pagination, `cancel_task`, the settlement remainder refund, a rotatable `guard` (`set_guard`, owner-gated), and `deliver` storing the real work product on-chain (hashed there, not by the caller); 22 unit tests (`cargo test`) cover the cap, allow-list, revoke-authorization, guard-rotation, and status-transition rules. Ready to build and deploy.
 - `agents/src/worker.ts`, `coordinator.ts`, `guard.ts` — real polling loops and real contract calls end to end. `worker.ts`'s work product is a real Gemini chat completion when `GEMINI_API_KEY` is set, a deterministic stub otherwise, and is now stored on-chain in full rather than just as a hash.
 - `app/app/swarm`, `app/app/developers`, and the Mandates panel on `app/app/page.tsx` — real, wired UI; typechecked and production-built clean.
 
@@ -72,7 +73,7 @@ rustup target add wasm32-unknown-unknown
 cargo test
 ./build.sh
 ```
-Expected result: `cargo test` reports `21 passed; 0 failed` across both crates; `out/mandate.wasm` and `out/task_market.wasm` both exist.
+Expected result: `cargo test` reports `22 passed; 0 failed` across both crates; `out/mandate.wasm` and `out/task_market.wasm` both exist.
 
 **2 — Deploy Mandate and Task Market to testnet dev accounts.**
 

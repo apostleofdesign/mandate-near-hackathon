@@ -82,26 +82,41 @@ impl TaskMarket {
     /// contract's own top-level fields didn't change shape, so this is a
     /// plain `#[private]` call, not an init — only the per-task entries
     /// inside the `LookupMap` needed rewriting.
+    ///
+    /// Both the read AND the write go through raw `env::storage_read` /
+    /// `env::storage_write` with the key encoded by hand (`prefix ++
+    /// borsh(key)`, matching `near_sdk::store::key::Identity`) — never through
+    /// `self.tasks` itself. `LookupMap::insert` returns the *previous* value,
+    /// which means it deserializes whatever's already at that key using the
+    /// *new* `Task` type before overwriting it; against old-shape bytes that
+    /// panics with an unreadable `WasmTrap(Unreachable)`, confirmed directly
+    /// against this deployed contract (twice — first with a second typed
+    /// `LookupMap` on the same prefix, which turned out not to be the actual
+    /// cause). Raw storage ops sidestep `insert`'s read-before-write entirely.
     #[private]
     pub fn migrate(&mut self) {
-        let old_tasks: LookupMap<TaskId, TaskV0> = LookupMap::new(b"t");
         let ids: Vec<TaskId> = self.task_ids.iter().cloned().collect();
         for id in ids {
-            if let Some(old) = old_tasks.get(&id) {
-                self.tasks.insert(
-                    id,
-                    Task {
-                        id: old.id,
-                        requester: old.requester.clone(),
-                        spec: old.spec.clone(),
-                        budget: old.budget,
-                        bids: old.bids.clone(),
-                        assignee: old.assignee.clone(),
-                        status: old.status.clone(),
-                        delivery_content: None,
-                        delivery_hash: old.delivery_hash.clone(),
-                    },
-                );
+            let mut key = b"t".to_vec();
+            near_sdk::borsh::BorshSerialize::serialize(&id, &mut key).expect("failed to encode task id");
+            if let Some(bytes) = env::storage_read(&key) {
+                let old: TaskV0 =
+                    near_sdk::borsh::BorshDeserialize::try_from_slice(&bytes).expect("failed to decode old task");
+                let migrated = Task {
+                    id: old.id,
+                    requester: old.requester,
+                    spec: old.spec,
+                    budget: old.budget,
+                    bids: old.bids,
+                    assignee: old.assignee,
+                    status: old.status,
+                    delivery_content: None,
+                    delivery_hash: old.delivery_hash,
+                };
+                let mut new_bytes = Vec::new();
+                near_sdk::borsh::BorshSerialize::serialize(&migrated, &mut new_bytes)
+                    .expect("failed to encode migrated task");
+                env::storage_write(&key, &new_bytes);
             }
         }
     }
