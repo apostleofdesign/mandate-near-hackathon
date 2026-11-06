@@ -138,3 +138,114 @@ impl MandateRegistry {
         env::block_timestamp() / 86_400_000_000_000
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_sdk::test_utils::{accounts, VMContextBuilder};
+    use near_sdk::testing_env;
+
+    fn ctx(predecessor: AccountId) -> VMContextBuilder {
+        let mut builder = VMContextBuilder::new();
+        builder.predecessor_account_id(predecessor);
+        builder
+    }
+
+    fn registry() -> MandateRegistry {
+        testing_env!(ctx(accounts(0)).build());
+        MandateRegistry::new(accounts(1) /* guard */)
+    }
+
+    #[test]
+    fn issue_and_get_mandate() {
+        let mut registry = registry();
+        testing_env!(ctx(accounts(0)).build());
+        let id = registry.issue_mandate(accounts(2), NearToken::from_near(1), vec![], 0);
+        let mandate = registry.get_mandate(id).unwrap();
+        assert_eq!(mandate.owner, accounts(2));
+        assert_eq!(mandate.issuer, accounts(0));
+        assert!(!mandate.revoked);
+        assert_eq!(mandate.spent_today, NearToken::from_yoctonear(0));
+    }
+
+    #[test]
+    fn authorize_spend_within_cap_succeeds_and_records_spend() {
+        let mut registry = registry();
+        testing_env!(ctx(accounts(0)).build());
+        let id = registry.issue_mandate(accounts(2), NearToken::from_near(1), vec![], 0);
+        testing_env!(ctx(accounts(2)).build());
+        assert!(registry.authorize_spend(id, accounts(3), NearToken::from_millinear(400)));
+        let mandate = registry.get_mandate(id).unwrap();
+        assert_eq!(mandate.spent_today, NearToken::from_millinear(400));
+    }
+
+    #[test]
+    #[should_panic(expected = "daily cap exceeded")]
+    fn authorize_spend_over_cap_panics() {
+        let mut registry = registry();
+        testing_env!(ctx(accounts(0)).build());
+        let id = registry.issue_mandate(accounts(2), NearToken::from_near(1), vec![], 0);
+        testing_env!(ctx(accounts(2)).build());
+        registry.authorize_spend(id, accounts(3), NearToken::from_near(2));
+    }
+
+    #[test]
+    #[should_panic(expected = "only the mandate owner can spend")]
+    fn authorize_spend_by_non_owner_panics() {
+        let mut registry = registry();
+        testing_env!(ctx(accounts(0)).build());
+        let id = registry.issue_mandate(accounts(2), NearToken::from_near(1), vec![], 0);
+        testing_env!(ctx(accounts(3)).build());
+        registry.authorize_spend(id, accounts(3), NearToken::from_millinear(100));
+    }
+
+    #[test]
+    #[should_panic(expected = "target not allow-listed")]
+    fn authorize_spend_outside_allow_list_panics() {
+        let mut registry = registry();
+        testing_env!(ctx(accounts(0)).build());
+        let id = registry.issue_mandate(accounts(2), NearToken::from_near(1), vec![accounts(4)], 0);
+        testing_env!(ctx(accounts(2)).build());
+        registry.authorize_spend(id, accounts(3), NearToken::from_millinear(100));
+    }
+
+    #[test]
+    fn revoke_by_issuer_succeeds() {
+        let mut registry = registry();
+        testing_env!(ctx(accounts(0)).build());
+        let id = registry.issue_mandate(accounts(2), NearToken::from_near(1), vec![], 0);
+        registry.revoke(id);
+        assert!(registry.get_mandate(id).unwrap().revoked);
+    }
+
+    #[test]
+    fn revoke_by_guard_succeeds_independent_of_issuer() {
+        let mut registry = registry();
+        testing_env!(ctx(accounts(0)).build());
+        let id = registry.issue_mandate(accounts(2), NearToken::from_near(1), vec![], 0);
+        testing_env!(ctx(accounts(1) /* guard */).build());
+        registry.revoke(id);
+        assert!(registry.get_mandate(id).unwrap().revoked);
+    }
+
+    #[test]
+    #[should_panic(expected = "not authorized to revoke")]
+    fn revoke_by_stranger_panics() {
+        let mut registry = registry();
+        testing_env!(ctx(accounts(0)).build());
+        let id = registry.issue_mandate(accounts(2), NearToken::from_near(1), vec![], 0);
+        testing_env!(ctx(accounts(3) /* neither issuer nor guard */).build());
+        registry.revoke(id);
+    }
+
+    #[test]
+    #[should_panic(expected = "mandate revoked")]
+    fn authorize_spend_after_revoke_panics() {
+        let mut registry = registry();
+        testing_env!(ctx(accounts(0)).build());
+        let id = registry.issue_mandate(accounts(2), NearToken::from_near(1), vec![], 0);
+        registry.revoke(id);
+        testing_env!(ctx(accounts(2)).build());
+        registry.authorize_spend(id, accounts(3), NearToken::from_millinear(1));
+    }
+}

@@ -168,3 +168,123 @@ impl TaskMarket {
         self.tasks.get(&task_id).cloned()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_sdk::test_utils::{accounts, VMContextBuilder};
+    use near_sdk::testing_env;
+
+    fn ctx(predecessor: AccountId, deposit: NearToken) -> VMContextBuilder {
+        let mut builder = VMContextBuilder::new();
+        builder.predecessor_account_id(predecessor).attached_deposit(deposit);
+        builder
+    }
+
+    fn market() -> TaskMarket {
+        testing_env!(ctx(accounts(0), NearToken::from_yoctonear(0)).build());
+        TaskMarket::new()
+    }
+
+    fn post(market: &mut TaskMarket, requester: AccountId, budget: NearToken) -> TaskId {
+        testing_env!(ctx(requester, budget).build());
+        market.post_task("a task".to_string())
+    }
+
+    #[test]
+    fn post_and_get_task() {
+        let mut market = market();
+        let id = post(&mut market, accounts(0), NearToken::from_near(1));
+        let task = market.get_task(id).unwrap();
+        assert_eq!(task.requester, accounts(0));
+        assert_eq!(task.budget, NearToken::from_near(1));
+        assert_eq!(task.status, TaskStatus::Open);
+    }
+
+    #[test]
+    #[should_panic(expected = "bid exceeds budget")]
+    fn bid_over_budget_panics() {
+        let mut market = market();
+        let id = post(&mut market, accounts(0), NearToken::from_millinear(500));
+        testing_env!(ctx(accounts(1), NearToken::from_yoctonear(0)).build());
+        market.bid(id, NearToken::from_near(1), "too much".to_string());
+    }
+
+    #[test]
+    #[should_panic(expected = "bidder did not bid on this task")]
+    fn assign_requires_an_existing_bid() {
+        let mut market = market();
+        let id = post(&mut market, accounts(0), NearToken::from_near(1));
+        testing_env!(ctx(accounts(0), NearToken::from_yoctonear(0)).build());
+        market.assign(id, accounts(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "only the requester assigns")]
+    fn assign_by_non_requester_panics() {
+        let mut market = market();
+        let id = post(&mut market, accounts(0), NearToken::from_near(1));
+        testing_env!(ctx(accounts(1), NearToken::from_yoctonear(0)).build());
+        market.bid(id, NearToken::from_millinear(500), "bid".to_string());
+        testing_env!(ctx(accounts(1) /* not the requester */, NearToken::from_yoctonear(0)).build());
+        market.assign(id, accounts(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "only the assignee delivers")]
+    fn deliver_by_non_assignee_panics() {
+        let mut market = market();
+        let id = post(&mut market, accounts(0), NearToken::from_near(1));
+        testing_env!(ctx(accounts(1), NearToken::from_yoctonear(0)).build());
+        market.bid(id, NearToken::from_millinear(500), "bid".to_string());
+        testing_env!(ctx(accounts(0), NearToken::from_yoctonear(0)).build());
+        market.assign(id, accounts(1));
+        testing_env!(ctx(accounts(2) /* not the assignee */, NearToken::from_yoctonear(0)).build());
+        market.deliver(id, "hash".to_string());
+    }
+
+    #[test]
+    fn cancel_open_task_refunds_and_marks_cancelled() {
+        let mut market = market();
+        let id = post(&mut market, accounts(0), NearToken::from_near(1));
+        testing_env!(ctx(accounts(0), NearToken::from_yoctonear(0)).build());
+        let _ = market.cancel_task(id);
+        assert_eq!(market.get_task(id).unwrap().status, TaskStatus::Cancelled);
+    }
+
+    #[test]
+    #[should_panic(expected = "only the requester cancels")]
+    fn cancel_by_non_requester_panics() {
+        let mut market = market();
+        let id = post(&mut market, accounts(0), NearToken::from_near(1));
+        testing_env!(ctx(accounts(1), NearToken::from_yoctonear(0)).build());
+        let _ = market.cancel_task(id);
+    }
+
+    #[test]
+    #[should_panic(expected = "can only cancel a task with no assignee yet")]
+    fn cancel_assigned_task_panics() {
+        let mut market = market();
+        let id = post(&mut market, accounts(0), NearToken::from_near(1));
+        testing_env!(ctx(accounts(1), NearToken::from_yoctonear(0)).build());
+        market.bid(id, NearToken::from_millinear(500), "bid".to_string());
+        testing_env!(ctx(accounts(0), NearToken::from_yoctonear(0)).build());
+        market.assign(id, accounts(1));
+        let _ = market.cancel_task(id);
+    }
+
+    #[test]
+    fn accept_and_settle_moves_task_to_settled() {
+        let mut market = market();
+        let id = post(&mut market, accounts(0), NearToken::from_near(1));
+        testing_env!(ctx(accounts(1), NearToken::from_yoctonear(0)).build());
+        market.bid(id, NearToken::from_millinear(600), "bid".to_string());
+        testing_env!(ctx(accounts(0), NearToken::from_yoctonear(0)).build());
+        market.assign(id, accounts(1));
+        testing_env!(ctx(accounts(1), NearToken::from_yoctonear(0)).build());
+        market.deliver(id, "hash".to_string());
+        testing_env!(ctx(accounts(0), NearToken::from_yoctonear(0)).build());
+        let _ = market.accept_and_settle(id);
+        assert_eq!(market.get_task(id).unwrap().status, TaskStatus::Settled);
+    }
+}

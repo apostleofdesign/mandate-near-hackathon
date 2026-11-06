@@ -47,20 +47,21 @@ Mandate is deliberately not married to one app. `contracts/task-market` is an in
 
 ## Status
 
-- `contracts/mandate` and `contracts/task-market` — full logic including `list_mandates`/`list_tasks` pagination, ready to build and deploy.
+- `contracts/mandate` and `contracts/task-market` — full logic including `list_mandates`/`list_tasks` pagination, `cancel_task`, and the settlement remainder refund; 18 unit tests (`cargo test`) cover the cap, allow-list, revoke-authorization, and status-transition rules. Ready to build and deploy.
 - `agents/src/worker.ts`, `coordinator.ts`, `guard.ts` — real polling loops and real contract calls end to end. `worker.ts`'s work product is a real NEAR AI Cloud chat completion when `NEAR_AI_API_KEY` is set, a deterministic stub otherwise.
 - `app/app/swarm`, `app/app/developers`, and the Mandates panel on `app/app/page.tsx` — real, wired UI; typechecked and production-built clean.
 
 ## Run it
 
-**1 — Build the contracts.** See them compile and produce wasm artifacts.
+**1 — Build and test the contracts.** See them compile, pass their unit tests, and produce wasm artifacts.
 
 ```bash
 cd contracts
 rustup target add wasm32-unknown-unknown
+cargo test
 ./build.sh
 ```
-Expected result: `out/mandate.wasm` and `out/task_market.wasm` both exist.
+Expected result: `cargo test` reports `18 passed; 0 failed` across both crates; `out/mandate.wasm` and `out/task_market.wasm` both exist.
 
 **2 — Deploy Mandate and Task Market to testnet dev accounts.**
 

@@ -58,8 +58,8 @@ const completion = await client.chat.completions.create({
 
 | Piece | State |
 | --- | --- |
-| `contracts/mandate` | Full logic: issue, authorize, revoke, day-rollover, `list_mandates` pagination. Ready to build/deploy. |
-| `contracts/task-market` | Full logic: post/bid/assign/deliver/settle, `cancel_task` (refunds an unassigned budget) and a remainder refund on settle, `list_tasks` pagination. Deployed live. |
+| `contracts/mandate` | Full logic: issue, authorize, revoke, day-rollover, `list_mandates` pagination. 9 unit tests. Deployed live. |
+| `contracts/task-market` | Full logic: post/bid/assign/deliver/settle, `cancel_task` (refunds an unassigned budget) and a remainder refund on settle, `list_tasks` pagination. 9 unit tests. Deployed live. |
 | `agents/src/llm.ts` | Real NEAR AI Cloud call when `NEAR_AI_API_KEY` is set; deterministic stub otherwise. |
 | `agents/src/worker.ts` | Real polling loop: bids on matching open tasks, calls `llm.ts` for the deliverable, delivers. |
 | `agents/src/coordinator.ts` | Real: `authorize_spend` then `post_task` per subtask, on-chain. The subtask split itself (`decompose`) is deterministic on purpose, for a reproducible demo without depending on another LLM call. |
