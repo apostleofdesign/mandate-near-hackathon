@@ -15,13 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  RiShieldCheckLine,
-  RiWalletLine,
-  RiCheckboxCircleFill,
-  RiGroupLine,
-  RiToolsLine,
-} from "@remixicon/react";
+import { RiShieldCheckLine, RiGroupLine, RiToolsLine } from "@remixicon/react";
 
 type Mandate = {
   id: number;
@@ -57,7 +51,7 @@ const SURFACES = [
 ];
 
 export default function Home() {
-  const { accountId, connect } = useNearWallet();
+  const { accountId } = useNearWallet();
   const [mandates, setMandates] = useState<Mandate[] | null>(null);
 
   const refreshMandates = useCallback(async () => {
@@ -110,18 +104,6 @@ export default function Home() {
         ))}
       </div>
 
-      {accountId ? (
-        <div className="flex items-center gap-2 text-sm">
-          <RiCheckboxCircleFill className="size-4 text-primary" />
-          Signed in as <span className="font-medium">{accountId}</span>
-        </div>
-      ) : (
-        <Button onClick={() => connect()} className="w-fit gap-2">
-          <RiWalletLine className="size-4" />
-          Connect wallet
-        </Button>
-      )}
-
       <Separator />
 
       <Card>
@@ -148,7 +130,14 @@ export default function Home() {
             return (
               <div key={m.id} className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="truncate font-medium">#{m.id} — {m.owner}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium">#{m.id} — {m.owner}</span>
+                    {accountId === m.owner && (
+                      <Badge variant="outline" className="shrink-0">
+                        yours
+                      </Badge>
+                    )}
+                  </span>
                   {m.revoked ? (
                     <Badge variant="destructive">revoked</Badge>
                   ) : expired ? (

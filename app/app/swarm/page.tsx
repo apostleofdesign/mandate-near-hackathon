@@ -6,13 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import {
-  RiGroupLine,
-  RiLoaderLine,
-  RiWalletLine,
-  RiSendPlaneLine,
-  RiCheckboxCircleFill,
-} from "@remixicon/react";
+import { RiGroupLine, RiLoaderLine, RiSendPlaneLine, RiCheckboxCircleFill } from "@remixicon/react";
 import { viewFunction, callFunction, TASK_MARKET_CONTRACT_ID } from "../../lib/near";
 import { useNearWallet } from "../../lib/useNearWallet";
 import { toYocto, toNear } from "../../lib/format";
@@ -47,7 +41,7 @@ const STATUS_VARIANT: Record<TaskStatus, "default" | "secondary" | "destructive"
 };
 
 export default function SwarmPage() {
-  const { wallet, accountId, connect } = useNearWallet();
+  const { wallet, accountId } = useNearWallet();
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [spec, setSpec] = useState("");
   const [budget, setBudget] = useState("2");
@@ -135,13 +129,6 @@ export default function SwarmPage() {
         </p>
       </div>
 
-      {!accountId && (
-        <Button onClick={() => connect()} className="w-fit gap-2">
-          <RiWalletLine className="size-4" />
-          Connect wallet
-        </Button>
-      )}
-
       <Tabs defaultValue="board">
         <TabsList>
           <TabsTrigger value="board">Board</TabsTrigger>
@@ -183,9 +170,11 @@ export default function SwarmPage() {
                       <Button
                         size="xs"
                         variant="secondary"
+                        className="gap-1.5"
                         disabled={busyTaskId === task.id}
                         onClick={() => assign(task.id, bid.bidder)}
                       >
+                        {busyTaskId === task.id && <RiLoaderLine className="size-3 animate-spin" />}
                         Assign
                       </Button>
                     )}
