@@ -7,15 +7,8 @@ import { RiToolsLine } from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import CodeBlock from "../../components/CodeBlock";
+import DevNav from "../../components/DevNav";
 import { NETWORK_ID, MANDATE_CONTRACT_ID, TASK_MARKET_CONTRACT_ID } from "../../lib/near";
-
-const SECTIONS = [
-  { href: "#quickstart", label: "Quickstart" },
-  { href: "#pattern", label: "The pattern" },
-  { href: "#typescript", label: "TypeScript" },
-  { href: "#cli", label: "near-cli" },
-  { href: "#reference", label: "Contract reference" },
-];
 
 const METHODS = [
   {
@@ -90,20 +83,7 @@ export default function DevelopersPage() {
       </div>
 
       <div className="grid gap-8 lg:grid-cols-[160px_1fr]">
-        <nav className="hidden lg:sticky lg:top-20 lg:block lg:h-fit">
-          <ul className="flex flex-col gap-1 border-l text-sm">
-            {SECTIONS.map((s) => (
-              <li key={s.href}>
-                <a
-                  href={s.href}
-                  className="-ml-px block border-l-2 border-transparent px-3 py-1 text-muted-foreground hover:border-foreground/30 hover:text-foreground"
-                >
-                  {s.label}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        <DevNav />
 
         <div className="flex min-w-0 flex-col gap-12">
           {/* One continuous terminal window for the code-walkthrough half */}
