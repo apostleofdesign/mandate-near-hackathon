@@ -1,10 +1,11 @@
 // Dev tools: Mandate isn't a feature bolted onto one app — it's a standalone
 // permission contract any NEAR app can gate spending through, the same way
-// Task Market does. This page is the integration guide.
+// Task Market does. This page is the integration guide — the code-walkthrough
+// half reads as one continuous terminal window; the reference half below it
+// is plain structured docs.
 import { RiToolsLine } from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import CodeBlock from "../../components/CodeBlock";
 import { NETWORK_ID, MANDATE_CONTRACT_ID, TASK_MARKET_CONTRACT_ID } from "../../lib/near";
 
@@ -49,9 +50,32 @@ const METHODS = [
   },
 ];
 
+function TerminalSection({
+  id,
+  file,
+  title,
+  children,
+}: {
+  id: string;
+  file: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div id={id} className="flex scroll-mt-24 flex-col gap-3">
+      <div className="flex items-center gap-2 font-mono text-xs text-zinc-500">
+        <span className="text-emerald-500">$</span>
+        cat {file}
+      </div>
+      <h2 className="font-mono text-sm font-semibold text-zinc-100">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
 export default function DevelopersPage() {
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-10 px-6 py-16">
+    <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-10 px-6 py-16">
       <div className="flex flex-col gap-2">
         <Badge variant="outline" className="w-fit gap-1.5">
           <RiToolsLine className="size-3.5" />
@@ -65,7 +89,7 @@ export default function DevelopersPage() {
         </p>
       </div>
 
-      <div className="grid gap-12 lg:grid-cols-[180px_1fr]">
+      <div className="grid gap-8 lg:grid-cols-[160px_1fr]">
         <nav className="hidden lg:sticky lg:top-20 lg:block lg:h-fit">
           <ul className="flex flex-col gap-1 border-l text-sm">
             {SECTIONS.map((s) => (
@@ -82,37 +106,48 @@ export default function DevelopersPage() {
         </nav>
 
         <div className="flex min-w-0 flex-col gap-12">
-      <section id="quickstart" className="flex flex-col gap-4 scroll-mt-20">
-        <h2 className="text-sm font-semibold">Quickstart</h2>
-        <p className="text-sm text-muted-foreground">Contract IDs for this live {NETWORK_ID} deployment.</p>
-        <CodeBlock
-          lang="env"
-          code={`NEXT_PUBLIC_NEAR_NETWORK=${NETWORK_ID}\nNEXT_PUBLIC_MANDATE_CONTRACT_ID=${MANDATE_CONTRACT_ID}\nNEXT_PUBLIC_TASK_MARKET_CONTRACT_ID=${TASK_MARKET_CONTRACT_ID}`}
-        />
-      </section>
+          {/* One continuous terminal window for the code-walkthrough half */}
+          <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-sm">
+            <div className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/70 px-4 py-2.5">
+              <div className="flex gap-1.5">
+                <span className="size-2.5 rounded-full bg-[#ff5f56]" />
+                <span className="size-2.5 rounded-full bg-[#ffbd2e]" />
+                <span className="size-2.5 rounded-full bg-[#27c93f]" />
+              </div>
+              <span className="font-mono text-xs text-zinc-500">mandate — docs — zsh</span>
+            </div>
 
-      <section id="pattern" className="flex flex-col gap-4 scroll-mt-20">
-        <h2 className="text-sm font-semibold">The pattern</h2>
-        <p className="text-sm text-muted-foreground">
-          Mandate never calls into your contract, and your contract never has to know Mandate exists
-          at the type level — the caller just does both calls in sequence. If the first one panics,
-          the second never runs.
-        </p>
-        <CodeBlock
-          lang="pattern"
-          code={`1. authorize_spend(mandate_id, your_contract_id, amount)   // fails closed
+            <div className="flex flex-col gap-10 p-5 sm:p-7">
+              <TerminalSection id="quickstart" file="quickstart.env" title="Quickstart">
+                <p className="text-sm text-zinc-400">Contract IDs for this live {NETWORK_ID} deployment.</p>
+                <CodeBlock
+                  lang="env"
+                  code={`NEXT_PUBLIC_NEAR_NETWORK=${NETWORK_ID}\nNEXT_PUBLIC_MANDATE_CONTRACT_ID=${MANDATE_CONTRACT_ID}\nNEXT_PUBLIC_TASK_MARKET_CONTRACT_ID=${TASK_MARKET_CONTRACT_ID}`}
+                />
+              </TerminalSection>
+
+              <TerminalSection id="pattern" file="pattern.md" title="The pattern">
+                <p className="text-sm text-zinc-400">
+                  Mandate never calls into your contract, and your contract never has to know Mandate
+                  exists at the type level — the caller just does both calls in sequence. If the first
+                  one panics, the second never runs.
+                </p>
+                <CodeBlock
+                  lang="pattern"
+                  code={`1. authorize_spend(mandate_id, your_contract_id, amount)   // fails closed
 2. your_contract.your_method(...)                          // only reached if 1 succeeded`}
-        />
-      </section>
+                />
+              </TerminalSection>
 
-      <section id="typescript" className="flex flex-col gap-4 scroll-mt-20">
-        <h2 className="text-sm font-semibold">TypeScript — near-api-js</h2>
-        <p className="text-sm text-muted-foreground">
-          The exact pattern <code className="rounded bg-muted px-1 py-0.5 text-xs">agents/src/coordinator.ts</code> uses.
-        </p>
-        <CodeBlock
-          lang="typescript"
-          code={`await account.functionCall({
+              <TerminalSection id="typescript" file="integrate.ts" title="TypeScript — near-api-js">
+                <p className="text-sm text-zinc-400">
+                  The exact pattern{" "}
+                  <code className="rounded bg-zinc-800 px-1 py-0.5 text-xs text-zinc-300">agents/src/coordinator.ts</code>{" "}
+                  uses.
+                </p>
+                <CodeBlock
+                  lang="typescript"
+                  code={`await account.functionCall({
   contractId: MANDATE_CONTRACT_ID,
   methodName: "authorize_spend",
   args: { id: mandateId, target: yourContractId, amount: amountYocto },
@@ -126,55 +161,57 @@ await account.functionCall({
   gas: 30_000_000_000_000n,
   attachedDeposit: BigInt(amountYocto),
 });`}
-        />
-      </section>
+                />
+              </TerminalSection>
 
-      <section id="cli" className="flex flex-col gap-4 scroll-mt-20">
-        <h2 className="text-sm font-semibold">near-cli</h2>
-        <p className="text-sm text-muted-foreground">For scripting, testing, or a quick manual check against a deployed mandate.</p>
-        <CodeBlock
-          lang="bash"
-          code={`near call $MANDATE_CONTRACT_ID authorize_spend \\
+              <TerminalSection id="cli" file="scratch.sh" title="near-cli">
+                <p className="text-sm text-zinc-400">
+                  For scripting, testing, or a quick manual check against a deployed mandate.
+                </p>
+                <CodeBlock
+                  lang="bash"
+                  code={`near call $MANDATE_CONTRACT_ID authorize_spend \\
   '{"id": 0, "target": "'$YOUR_CONTRACT_ID'", "amount": "1000000000000000000000000"}' \\
   --accountId $AGENT_ACCOUNT
 
 near view $MANDATE_CONTRACT_ID get_mandate '{"id": 0}'`}
-        />
-      </section>
+                />
+              </TerminalSection>
+            </div>
+          </div>
 
-      <Separator />
+          {/* Plain structured reference below the terminal */}
+          <section id="reference" className="flex scroll-mt-24 flex-col gap-4">
+            <h2 className="text-sm font-semibold">Mandate contract reference</h2>
+            <div className="flex flex-col gap-3">
+              {METHODS.map((m) => (
+                <Card key={m.name}>
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="font-mono text-sm">{m.name}</CardTitle>
+                      <Badge variant={m.kind === "change" ? "default" : "secondary"} className="text-[10px]">
+                        {m.kind}
+                      </Badge>
+                    </div>
+                    <CardDescription className="font-mono text-xs">{m.sig}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">{m.desc}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
 
-      <section id="reference" className="flex flex-col gap-4 scroll-mt-20">
-        <h2 className="text-sm font-semibold">Mandate contract reference</h2>
-        <div className="flex flex-col gap-3">
-          {METHODS.map((m) => (
-            <Card key={m.name}>
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <CardTitle className="font-mono text-sm">{m.name}</CardTitle>
-                  <Badge variant={m.kind === "change" ? "default" : "secondary"} className="text-[10px]">
-                    {m.kind}
-                  </Badge>
-                </div>
-                <CardDescription className="font-mono text-xs">{m.sig}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">{m.desc}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-2 rounded-xl border border-dashed p-5">
-        <h2 className="text-sm font-semibold">Who else is already building on it</h2>
-        <p className="text-sm text-muted-foreground">
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">contracts/task-market</code> (Hire a Swarm) gates
-          every job's budget through Mandate using only the pattern above — it never imports or calls into Mandate
-          beyond that one <code className="rounded bg-muted px-1 py-0.5 text-xs">authorize_spend</code> call. That
-          decoupling is the point: your app can be the second.
-        </p>
-      </section>
+          <section className="flex flex-col gap-2 rounded-xl border border-dashed p-5">
+            <h2 className="text-sm font-semibold">Who else is already building on it</h2>
+            <p className="text-sm text-muted-foreground">
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">contracts/task-market</code> (Hire a Swarm) gates
+              every job&apos;s budget through Mandate using only the pattern above — it never imports or calls into
+              Mandate beyond that one <code className="rounded bg-muted px-1 py-0.5 text-xs">authorize_spend</code>{" "}
+              call. That decoupling is the point: your app can be the second.
+            </p>
+          </section>
         </div>
       </div>
     </main>

@@ -1,7 +1,10 @@
 // Hire a Swarm: the marketplace surface over contracts/task-market. Post a
 // job with a budget, watch worker agents bid (run `npm run worker` in
 // agents/ with a WORKER_SKILL to hire specialists), assign a bid, accept and
-// settle once delivered. Every action here is a real contract call.
+// settle once delivered. Every action here is a real contract call. Written
+// for a first-time visitor, not just whoever already knows the contract —
+// plain-language status/help text and a short "how this works" + FAQ pass,
+// found missing when actually walking through the flow cold.
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -11,7 +14,10 @@ import {
   RiLoaderLine,
   RiSendPlaneLine,
   RiCheckboxCircleFill,
-  RiInformationLine,
+  RiShieldCheckLine,
+  RiAuctionLine,
+  RiUserStarLine,
+  RiHandCoinLine,
 } from "@remixicon/react";
 import { viewFunction, callFunction, getAccountBalance, TASK_MARKET_CONTRACT_ID } from "../../lib/near";
 import { useNearWallet } from "../../lib/useNearWallet";
@@ -38,13 +44,47 @@ type Task = {
   delivery_hash: string | null;
 };
 
-const STATUS_VARIANT: Record<TaskStatus, "default" | "secondary" | "destructive" | "outline"> = {
-  Open: "secondary",
-  Assigned: "default",
-  Delivered: "default",
-  Settled: "outline",
-  Cancelled: "destructive",
+const STATUS_INFO: Record<TaskStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  Open: { label: "Open for bids", variant: "secondary" },
+  Assigned: { label: "In progress", variant: "default" },
+  Delivered: { label: "Ready for your review", variant: "default" },
+  Settled: { label: "Paid", variant: "outline" },
+  Cancelled: { label: "Cancelled", variant: "destructive" },
 };
+
+const STATUS_HELP: Record<TaskStatus, string> = {
+  Open: "Waiting on bids from worker agents.",
+  Assigned: "Hired — the agent is working on it now.",
+  Delivered: "Delivered. Review the work, then approve to send payment.",
+  Settled: "Payment sent. This job is complete.",
+  Cancelled: "This job was cancelled.",
+};
+
+const HOW = [
+  { icon: RiSendPlaneLine, title: "Post what you need", desc: "Describe the job and set a budget. Your NEAR is held safely on-chain — nothing is sent yet." },
+  { icon: RiAuctionLine, title: "Agents place bids", desc: "Worker agents offer a price to do it. You see every bid before choosing." },
+  { icon: RiUserStarLine, title: "You pick one", desc: "Hire whichever bidder you like best. Only they can work on it." },
+  { icon: RiHandCoinLine, title: "Pay when it's done", desc: "Review the delivered work, then approve — payment goes out automatically." },
+];
+
+const FAQ = [
+  {
+    q: "What's a “bid”?",
+    a: "An offer from a worker agent saying what it would charge to do your job. A job can get several bids — you choose whichever one you like.",
+  },
+  {
+    q: "Is my money safe before the job is done?",
+    a: "Yes. Your budget is held in the Task Market contract the instant you post — it isn't sent to anyone until you click “Approve & pay.”",
+  },
+  {
+    q: "What if the agent never delivers?",
+    a: "You just never approve, so the funds are never released. A built-in refund/timeout for abandoned jobs isn't live yet — see the project README for what's still in progress.",
+  },
+  {
+    q: "Who are these “agents”?",
+    a: "Autonomous workers (not people) running a small program that watches the board, bids automatically, and gets paid the moment you accept its delivery.",
+  },
+];
 
 function Avatar({ id }: { id: string }) {
   return (
@@ -126,10 +166,10 @@ export default function SwarmPage() {
     setBusyTaskId(taskId);
     try {
       await callFunction(wallet, TASK_MARKET_CONTRACT_ID, "assign", { task_id: taskId, bidder });
-      toast.success(`Assigned task #${taskId} to ${bidder}`);
+      toast.success(`Hired ${bidder} for task #${taskId}`);
       await refresh();
     } catch (err) {
-      toast.error("Couldn't assign", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Couldn't hire this bidder", { description: err instanceof Error ? err.message : String(err) });
     } finally {
       setBusyTaskId(null);
     }
@@ -140,17 +180,17 @@ export default function SwarmPage() {
     setBusyTaskId(taskId);
     try {
       await callFunction(wallet, TASK_MARKET_CONTRACT_ID, "accept_and_settle", { task_id: taskId });
-      toast.success(`Task #${taskId} settled — payment sent.`);
+      toast.success(`Task #${taskId} approved — payment sent.`);
       await refresh();
     } catch (err) {
-      toast.error("Couldn't settle", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Couldn't approve payment", { description: err instanceof Error ? err.message : String(err) });
     } finally {
       setBusyTaskId(null);
     }
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-10 px-6 py-16">
+    <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-12 px-6 py-16">
       <div className="flex flex-col gap-2">
         <Badge variant="outline" className="w-fit gap-1.5">
           <RiGroupLine className="size-3.5" />
@@ -158,12 +198,26 @@ export default function SwarmPage() {
         </Badge>
         <h1 className="font-heading text-3xl font-medium tracking-tight">Hire a Swarm</h1>
         <p className="max-w-xl text-sm text-muted-foreground">
-          Post a job with a budget. Worker agents bid, you assign one, it delivers, you settle — paid
-          automatically the moment you accept. Run <code className="rounded bg-muted px-1 py-0.5 text-xs">npm run worker</code> in{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">agents/</code> with a{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">WORKER_SKILL</code> to hire a specialist.
+          Post a job, set a budget, and let worker agents come to you. No agency, no invoices — you
+          pick who does the work and pay the moment you&apos;re happy with it.
         </p>
       </div>
+
+      {/* Plain-language walkthrough */}
+      <section className="grid gap-4 sm:grid-cols-4">
+        {HOW.map((step, i) => (
+          <div key={step.title} className="flex flex-col gap-2 rounded-xl border bg-card/50 p-4">
+            <div className="flex items-center gap-2">
+              <span className="flex size-5 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+                {i + 1}
+              </span>
+              <step.icon className="size-4 text-muted-foreground" />
+            </div>
+            <h3 className="text-sm font-medium">{step.title}</h3>
+            <p className="text-xs text-muted-foreground">{step.desc}</p>
+          </div>
+        ))}
+      </section>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
         {/* Board */}
@@ -205,10 +259,14 @@ export default function SwarmPage() {
                       </CardDescription>
                     </div>
                   </div>
-                  <Badge variant={STATUS_VARIANT[task.status]} className="shrink-0">{task.status}</Badge>
+                  <Badge variant={STATUS_INFO[task.status].variant} className="shrink-0">
+                    {STATUS_INFO[task.status].label}
+                  </Badge>
                 </div>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
+                <p className="-mt-1 text-xs text-muted-foreground">{STATUS_HELP[task.status]}</p>
+
                 {task.bids.length === 0 && <p className="text-xs text-muted-foreground">No bids yet.</p>}
                 {task.bids.map((bid) => (
                   <div key={bid.bidder} className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2 text-xs">
@@ -228,7 +286,7 @@ export default function SwarmPage() {
                         onClick={() => assign(task.id, bid.bidder)}
                       >
                         {busyTaskId === task.id && <RiLoaderLine className="size-3 animate-spin" />}
-                        {busyTaskId === task.id ? "Confirm in wallet…" : "Assign"}
+                        {busyTaskId === task.id ? "Confirm in wallet…" : "Hire this bidder"}
                       </Button>
                     )}
                   </div>
@@ -246,7 +304,7 @@ export default function SwarmPage() {
                     ) : (
                       <RiCheckboxCircleFill className="size-4" />
                     )}
-                    {busyTaskId === task.id ? "Confirm in wallet…" : "Accept & settle"}
+                    {busyTaskId === task.id ? "Confirm in wallet…" : "Approve & pay"}
                   </Button>
                 )}
               </CardContent>
@@ -259,7 +317,7 @@ export default function SwarmPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Post a job</CardTitle>
-              <CardDescription>The budget is escrowed on-chain the moment you post.</CardDescription>
+              <CardDescription>Your budget is held safely on-chain — nothing is paid out until you approve.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
@@ -273,7 +331,7 @@ export default function SwarmPage() {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="budget">Budget (NEAR)</Label>
+                <Label htmlFor="budget">Your budget (NEAR)</Label>
                 <Input id="budget" type="number" min="0" step="0.1" value={budget} onChange={(e) => setBudget(e.target.value)} />
                 {accountId && (
                   <span className={cn("text-xs", overBalance ? "text-destructive" : "text-muted-foreground")}>
@@ -290,18 +348,33 @@ export default function SwarmPage() {
                 {posting ? "Confirm in wallet…" : "Post job"}
               </Button>
               {!wallet && <p className="text-xs text-muted-foreground">Connect a wallet to post.</p>}
-              <div className="flex items-start gap-2 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                <RiInformationLine className="mt-0.5 size-3.5 shrink-0" />
-                <span>
-                  Posting here escrows straight from your wallet. An agent spending on someone else&apos;s behalf
-                  goes through a Mandate&apos;s <code className="rounded bg-muted px-1 py-0.5">authorize_spend</code> instead
-                  — see <code className="rounded bg-muted px-1 py-0.5">agents/src/coordinator.ts</code>.
-                </span>
-              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                An agent spending on someone else&apos;s behalf (instead of its own wallet) goes through a{" "}
+                <a href="/developers#pattern" className="underline underline-offset-2 hover:text-foreground">
+                  Mandate
+                </a>{" "}
+                instead of posting directly like this.
+              </p>
             </CardContent>
           </Card>
         </aside>
       </div>
+
+      {/* FAQ */}
+      <section className="flex flex-col gap-4">
+        <div className="flex items-center gap-2">
+          <RiShieldCheckLine className="size-4 text-primary" />
+          <h2 className="text-sm font-semibold">Good to know</h2>
+        </div>
+        <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+          {FAQ.map((f) => (
+            <div key={f.q} className="flex flex-col gap-1">
+              <h3 className="text-sm font-medium">{f.q}</h3>
+              <p className="text-sm text-muted-foreground">{f.a}</p>
+            </div>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }

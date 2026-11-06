@@ -31,6 +31,9 @@ import {
   RiListCheck3,
   RiGithubFill,
   RiCompass3Line,
+  RiSendPlaneLine,
+  RiCheckboxCircleFill,
+  RiHandCoinLine,
 } from "@remixicon/react";
 
 type Mandate = {
@@ -109,10 +112,10 @@ export default function Home() {
   const settled = tasks?.filter((t) => t.status === "Settled");
   const routedYocto = (settled ?? []).reduce((sum, t) => sum + BigInt(t.budget), 0n);
   const stats = [
-    { label: "Mandates issued", value: mandates?.length },
-    { label: "Jobs posted", value: tasks?.length },
-    { label: "Jobs settled", value: settled?.length },
-    { label: "NEAR routed", value: tasks && Number(toNear(routedYocto.toString())).toFixed(2) },
+    { label: "Mandates issued", value: mandates?.length, icon: RiShieldCheckLine },
+    { label: "Jobs posted", value: tasks?.length, icon: RiSendPlaneLine },
+    { label: "Jobs settled", value: settled?.length, icon: RiCheckboxCircleFill },
+    { label: "NEAR routed", value: tasks && Number(toNear(routedYocto.toString())).toFixed(2), icon: RiHandCoinLine },
   ];
 
   return (
@@ -146,21 +149,33 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Live stats */}
-      <section className="border-y bg-card/40">
-        <div className="mx-auto grid w-full max-w-4xl grid-cols-2 gap-px overflow-hidden rounded-none sm:grid-cols-4">
-          {stats.map((s) => (
-            <div key={s.label} className="flex flex-col gap-1 px-6 py-6">
-              <span className="font-heading text-2xl font-medium tabular-nums sm:text-3xl">
-                {s.value === undefined ? <Skeleton className="h-8 w-12" /> : s.value}
-              </span>
-              <span className="text-xs text-muted-foreground">{s.label}</span>
-            </div>
-          ))}
-        </div>
-      </section>
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-20 px-6 pb-20">
+        {/* Live stats */}
+        <section className="flex flex-col gap-4">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="relative flex size-1.5">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
+              <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
+            </span>
+            Live numbers, straight off the chain
+          </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {stats.map((s) => (
+              <Card key={s.label} className="gap-3 py-5 transition-colors hover:border-foreground/20">
+                <CardContent className="flex flex-col gap-3">
+                  <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <s.icon className="size-4" />
+                  </span>
+                  <span className="font-heading text-2xl font-medium tabular-nums">
+                    {s.value === undefined ? <Skeleton className="h-7 w-14" /> : s.value}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{s.label}</span>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
 
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-20 px-6 py-20">
         {/* How it works */}
         <section className="flex flex-col gap-8">
           <div className="flex flex-col gap-2">
