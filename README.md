@@ -45,6 +45,15 @@ The worker agent needed a real LLM call. NEAR AI Cloud (`cloud-api.near.ai`) is 
 
 Mandate is deliberately not married to one app. `contracts/task-market` is an independent contract — it never calls into Mandate beyond one `authorize_spend` check before its own logic runs, the pattern documented on `/developers`. That decoupling is the actual pitch: a swarm marketplace can sit on this permission contract without needing to know anything else about it, and any third NEAR app would plug in the exact same way. Hire a Swarm is the flagship because "agents that hire other agents" is a named track and the clearest demo of agents actually transacting, not just chatting — but the dev-tools page exists specifically to make the point explicit: this is reusable infrastructure, not a one-off feature.
 
+## Known limitations
+
+Said plainly, because the Security track is the primary claim here and an undisclosed gap is worse than a disclosed one:
+
+- **`authorize_spend` and the real spend it gates aren't atomically linked.** The pattern on `/developers` is two separate calls — `authorize_spend` then your own contract call — enforced by the *caller's* control flow (a client that doesn't proceed past a panic), not by anything on-chain joining them into one transaction. Mandate records what a caller *reports* spending; it has no way to confirm a transfer of that exact amount to that exact target actually followed. A faithful caller (Task Market, the agents in this repo) is bound by it in practice; nothing but that cooperation enforces it on-chain. Closing this fully means redesigning Mandate to hold and move funds itself rather than stay a pure policy registry — a different architecture than what's shipped here.
+- **The `guard` account is set once at deploy and can't be rotated.** If that key is lost, the automated force-revoke capability goes with it — a mandate's own issuer can still revoke manually, so no funds get stuck, but the unattended "kill switch" stops working. There's no `set_guard` method.
+
+Everything else — the cap, the allow-list, the day rollover, who can revoke, the task-market state machine, overflow handling — was re-audited line by line, including a byte-for-byte check that the deployed testnet wasm matches this source exactly. No other gaps found.
+
 ## Status
 
 - `contracts/mandate` and `contracts/task-market` — full logic including `list_mandates`/`list_tasks` pagination, `cancel_task`, and the settlement remainder refund; 18 unit tests (`cargo test`) cover the cap, allow-list, revoke-authorization, and status-transition rules. Ready to build and deploy.
