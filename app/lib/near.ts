@@ -5,7 +5,7 @@
 import { NearConnector } from "@hot-labs/near-connect";
 import type { NearWalletBase } from "@hot-labs/near-connect";
 import { providers } from "near-api-js";
-import type { CodeResult } from "near-api-js/lib/providers/provider";
+import type { AccountView, CodeResult } from "near-api-js/lib/providers/provider";
 
 export type { NearWalletBase };
 
@@ -35,6 +35,17 @@ export async function viewFunction<T>(contractId: string, methodName: string, ar
     finality: "optimistic",
   });
   return JSON.parse(new TextDecoder().decode(new Uint8Array(res.result))) as T;
+}
+
+// Yocto-NEAR balance of a live account. Throws for an account that doesn't
+// exist yet (e.g. hasn't claimed testnet faucet funds) — callers catch it.
+export async function getAccountBalance(accountId: string): Promise<string> {
+  const res = await provider.query<AccountView>({
+    request_type: "view_account",
+    account_id: accountId,
+    finality: "optimistic",
+  });
+  return res.amount;
 }
 
 // Change calls need a signed-in wallet.

@@ -6,6 +6,15 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import CodeBlock from "../../components/CodeBlock";
+import { NETWORK_ID, MANDATE_CONTRACT_ID, TASK_MARKET_CONTRACT_ID } from "../../lib/near";
+
+const SECTIONS = [
+  { href: "#quickstart", label: "Quickstart" },
+  { href: "#pattern", label: "The pattern" },
+  { href: "#typescript", label: "TypeScript" },
+  { href: "#cli", label: "near-cli" },
+  { href: "#reference", label: "Contract reference" },
+];
 
 const METHODS = [
   {
@@ -42,13 +51,13 @@ const METHODS = [
 
 export default function DevelopersPage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-12 px-6 py-16">
+    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-10 px-6 py-16">
       <div className="flex flex-col gap-2">
         <Badge variant="outline" className="w-fit gap-1.5">
           <RiToolsLine className="size-3.5" />
           Dev tools
         </Badge>
-        <h1 className="font-heading text-2xl font-medium tracking-tight">Build on Mandate</h1>
+        <h1 className="font-heading text-3xl font-medium tracking-tight">Build on Mandate</h1>
         <p className="max-w-xl text-sm text-muted-foreground">
           Mandate is a standalone NEAR contract, not a feature baked into one app. Hire a Swarm gates
           every job's budget through the exact same two calls below — your app can too, instead of
@@ -56,7 +65,33 @@ export default function DevelopersPage() {
         </p>
       </div>
 
-      <section className="flex flex-col gap-4">
+      <div className="grid gap-12 lg:grid-cols-[180px_1fr]">
+        <nav className="hidden lg:sticky lg:top-20 lg:block lg:h-fit">
+          <ul className="flex flex-col gap-1 border-l text-sm">
+            {SECTIONS.map((s) => (
+              <li key={s.href}>
+                <a
+                  href={s.href}
+                  className="-ml-px block border-l-2 border-transparent px-3 py-1 text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+                >
+                  {s.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <div className="flex min-w-0 flex-col gap-12">
+      <section id="quickstart" className="flex flex-col gap-4 scroll-mt-20">
+        <h2 className="text-sm font-semibold">Quickstart</h2>
+        <p className="text-sm text-muted-foreground">Contract IDs for this live {NETWORK_ID} deployment.</p>
+        <CodeBlock
+          lang="env"
+          code={`NEXT_PUBLIC_NEAR_NETWORK=${NETWORK_ID}\nNEXT_PUBLIC_MANDATE_CONTRACT_ID=${MANDATE_CONTRACT_ID}\nNEXT_PUBLIC_TASK_MARKET_CONTRACT_ID=${TASK_MARKET_CONTRACT_ID}`}
+        />
+      </section>
+
+      <section id="pattern" className="flex flex-col gap-4 scroll-mt-20">
         <h2 className="text-sm font-semibold">The pattern</h2>
         <p className="text-sm text-muted-foreground">
           Mandate never calls into your contract, and your contract never has to know Mandate exists
@@ -70,7 +105,7 @@ export default function DevelopersPage() {
         />
       </section>
 
-      <section className="flex flex-col gap-4">
+      <section id="typescript" className="flex flex-col gap-4 scroll-mt-20">
         <h2 className="text-sm font-semibold">TypeScript — near-api-js</h2>
         <p className="text-sm text-muted-foreground">
           The exact pattern <code className="rounded bg-muted px-1 py-0.5 text-xs">agents/src/coordinator.ts</code> uses.
@@ -94,7 +129,7 @@ await account.functionCall({
         />
       </section>
 
-      <section className="flex flex-col gap-4">
+      <section id="cli" className="flex flex-col gap-4 scroll-mt-20">
         <h2 className="text-sm font-semibold">near-cli</h2>
         <p className="text-sm text-muted-foreground">For scripting, testing, or a quick manual check against a deployed mandate.</p>
         <CodeBlock
@@ -109,7 +144,7 @@ near view $MANDATE_CONTRACT_ID get_mandate '{"id": 0}'`}
 
       <Separator />
 
-      <section className="flex flex-col gap-4">
+      <section id="reference" className="flex flex-col gap-4 scroll-mt-20">
         <h2 className="text-sm font-semibold">Mandate contract reference</h2>
         <div className="flex flex-col gap-3">
           {METHODS.map((m) => (
@@ -140,6 +175,8 @@ near view $MANDATE_CONTRACT_ID get_mandate '{"id": 0}'`}
           decoupling is the point: your app can be the second.
         </p>
       </section>
+        </div>
+      </div>
     </main>
   );
 }
