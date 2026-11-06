@@ -7,14 +7,25 @@
 import OpenAI from "openai";
 
 const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta/openai/";
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-3.8-flash";
+// gemini-3.8-flash (the model named in Google's own "please migrate to this"
+// 404 messages for retired models) returned real 503 "high demand" errors
+// consistently when tested live against this key. gemini-flash-lite-latest
+// answered instantly every time in the same testing — an alias Google
+// documents as always pointing at a current lite model, so it shouldn't need
+// updating again as models get retired.
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-flash-lite-latest";
 
 let client: OpenAI | null = null;
 
 function getClient(): OpenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
-  if (!client) client = new OpenAI({ baseURL: GEMINI_BASE_URL, apiKey });
+  // The SDK's default timeout is long enough that a slow/hanging connection
+  // (seen in practice against this endpoint) can stall a delivery for
+  // minutes before the retry logic below even gets a chance to run. 20s is
+  // generous for a short completion and fails fast enough to actually fall
+  // back to the stub instead of leaving the worker looking hung.
+  if (!client) client = new OpenAI({ baseURL: GEMINI_BASE_URL, apiKey, timeout: 20_000, maxRetries: 0 });
   return client;
 }
 
