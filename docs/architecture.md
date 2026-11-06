@@ -58,7 +58,7 @@ const completion = await client.chat.completions.create({
 
 | Piece | State |
 | --- | --- |
-| `contracts/mandate` | Full logic: issue, authorize, revoke, day-rollover, `list_mandates` pagination. 9 unit tests. Deployed live. |
+| `contracts/mandate` | Full logic: issue, authorize, revoke, day-rollover, `list_mandates` pagination, rotatable `guard` via owner-gated `set_guard`. 12 unit tests. Deployed live, migrated in place. |
 | `contracts/task-market` | Full logic: post/bid/assign/deliver/settle, `cancel_task` (refunds an unassigned budget) and a remainder refund on settle, `list_tasks` pagination. 9 unit tests. Deployed live. |
 | `agents/src/llm.ts` | Real NEAR AI Cloud call when `NEAR_AI_API_KEY` is set; deterministic stub otherwise. |
 | `agents/src/worker.ts` | Real polling loop: bids on matching open tasks, calls `llm.ts` for the deliverable, delivers. |

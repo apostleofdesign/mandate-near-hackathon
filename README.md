@@ -19,6 +19,7 @@ Both contracts are deployed and the full loop has run for real — not simulated
 - Mandate `#1`: issued with a 1.5 NEAR cap to prove the cap has teeth. The coordinator agent posted one 1 NEAR sub-bounty (`authorize_spend` succeeded, mandate sat at 66% of cap), then its *second* `authorize_spend` call for another 1 NEAR panicked with `daily cap exceeded` and the coordinator exited non-zero before a second sub-bounty was ever posted.
 - **The Guard has actually force-revoked a live mandate — not simulated.** Mandate `#2` was issued fresh (0.4 NEAR cap, owner `researcher-f70187.testnet`) with the Guard watcher already running against the live contract. `researcher-f70187.testnet` then called `authorize_spend` for 0.3 NEAR — 75% of the cap in one call — and the Guard revoked it on its very next poll, a few seconds later, independently of the mandate's own issuer: [issue tx](https://explorer.testnet.near.org/transactions/A5iujBdzmajnZR3XMnbMTw6rGMvu5nbVkVx5EiKaGSev) → [revoke tx](https://explorer.testnet.near.org/transactions/G9KJkEyjQXwp46oWiHAJcz7i3iCeiT4sLxXabD8MYMaJ). `get_mandate({"id":2})` now shows `"revoked":true`. (Mandate `#1`'s pre-existing 66%-of-cap spend tripped the same Guard check independently, the instant the watcher started — a second, unplanned confirmation of the same code path.)
 - **`task-market` now has a real refund path — no stranded funds.** `cancel_task` refunds an unassigned task's full budget to the requester, and `accept_and_settle` now returns any unspent remainder (budget minus the winning bid) to the requester in the same transaction. Exercised live: task `#1` (1 NEAR budget, never bid on) was cancelled and its full budget returned to `owner-f70187.testnet` — [transaction](https://explorer.testnet.near.org/transactions/9cqdQA6GaqcpnRAVt3aZLw5x1TAZwYMGyf3q8wpa4G7n).
+- **The guard is now rotatable — and that's been exercised live too.** `mandate-f70187.testnet` was migrated in place (every existing mandate carried over byte-for-byte, verified before and after) to add an `owner` role (`owner-f70187.testnet`) that can call `set_guard` — [migration tx](https://explorer.testnet.near.org/transactions/oXBXUaeWPiMwr2hwbadeK5876P91X1Dpi1pM3uKs4n6). Then, for real: the guard was rotated to a different account, the *old* guard key's `revoke` call was tried and failed on-chain — [failed tx, as proof](https://explorer.testnet.near.org/transactions/PpQSxzNW3jJxnDcU7ZY4srnPM7TpdmhiJbsirw8Akef) — and the guard was rotated back. `get_guard` confirms `guard-f70187.testnet` is in control again.
 
 ## The problem
 
@@ -49,14 +50,13 @@ Mandate is deliberately not married to one app. `contracts/task-market` is an in
 
 Said plainly, because the Security track is the primary claim here and an undisclosed gap is worse than a disclosed one:
 
-- **`authorize_spend` and the real spend it gates aren't atomically linked.** The pattern on `/developers` is two separate calls — `authorize_spend` then your own contract call — enforced by the *caller's* control flow (a client that doesn't proceed past a panic), not by anything on-chain joining them into one transaction. Mandate records what a caller *reports* spending; it has no way to confirm a transfer of that exact amount to that exact target actually followed. A faithful caller (Task Market, the agents in this repo) is bound by it in practice; nothing but that cooperation enforces it on-chain. Closing this fully means redesigning Mandate to hold and move funds itself rather than stay a pure policy registry — a different architecture than what's shipped here.
-- **The `guard` account is set once at deploy and can't be rotated.** If that key is lost, the automated force-revoke capability goes with it — a mandate's own issuer can still revoke manually, so no funds get stuck, but the unattended "kill switch" stops working. There's no `set_guard` method.
+- **`authorize_spend` and the real spend it gates aren't atomically linked.** The pattern on `/developers` is two separate calls — `authorize_spend` then your own contract call — enforced by the *caller's* control flow (a client that doesn't proceed past a panic), not by anything on-chain joining them into one transaction. Mandate records what a caller *reports* spending; it has no way to confirm a transfer of that exact amount to that exact target actually followed. A faithful caller (Task Market, the agents in this repo) is bound by it in practice; nothing but that cooperation enforces it on-chain. Closing this fully means redesigning Mandate to hold and move funds itself rather than stay a pure policy registry — a different architecture than what's shipped here, and risky to attempt this close to the deadline. (The `guard`-rotation gap that used to be listed here has been fixed — see "Live on testnet" above.)
 
 Everything else — the cap, the allow-list, the day rollover, who can revoke, the task-market state machine, overflow handling — was re-audited line by line, including a byte-for-byte check that the deployed testnet wasm matches this source exactly. No other gaps found.
 
 ## Status
 
-- `contracts/mandate` and `contracts/task-market` — full logic including `list_mandates`/`list_tasks` pagination, `cancel_task`, and the settlement remainder refund; 18 unit tests (`cargo test`) cover the cap, allow-list, revoke-authorization, and status-transition rules. Ready to build and deploy.
+- `contracts/mandate` and `contracts/task-market` — full logic including `list_mandates`/`list_tasks` pagination, `cancel_task`, the settlement remainder refund, and a rotatable `guard` (`set_guard`, owner-gated); 21 unit tests (`cargo test`) cover the cap, allow-list, revoke-authorization, guard-rotation, and status-transition rules. Ready to build and deploy.
 - `agents/src/worker.ts`, `coordinator.ts`, `guard.ts` — real polling loops and real contract calls end to end. `worker.ts`'s work product is a real NEAR AI Cloud chat completion when `NEAR_AI_API_KEY` is set, a deterministic stub otherwise.
 - `app/app/swarm`, `app/app/developers`, and the Mandates panel on `app/app/page.tsx` — real, wired UI; typechecked and production-built clean.
 
@@ -70,14 +70,14 @@ rustup target add wasm32-unknown-unknown
 cargo test
 ./build.sh
 ```
-Expected result: `cargo test` reports `18 passed; 0 failed` across both crates; `out/mandate.wasm` and `out/task_market.wasm` both exist.
+Expected result: `cargo test` reports `21 passed; 0 failed` across both crates; `out/mandate.wasm` and `out/task_market.wasm` both exist.
 
 **2 — Deploy Mandate and Task Market to testnet dev accounts.**
 
 ```bash
 near create-account guard-dev.<you>.testnet --useFaucet
 near create-account mandate-dev.<you>.testnet --useFaucet
-near deploy mandate-dev.<you>.testnet out/mandate.wasm --initFunction new --initArgs '{"guard":"guard-dev.<you>.testnet"}'
+near deploy mandate-dev.<you>.testnet out/mandate.wasm --initFunction new --initArgs '{"guard":"guard-dev.<you>.testnet","owner":"<you>.testnet"}'
 
 near create-account market-dev.<you>.testnet --useFaucet
 near deploy market-dev.<you>.testnet out/task_market.wasm --initFunction new --initArgs '{}'

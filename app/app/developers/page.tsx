@@ -27,7 +27,13 @@ const METHODS = [
     name: "revoke",
     kind: "change",
     sig: "revoke(id)",
-    desc: "Kill a mandate immediately. Callable by its issuer, or by whatever account was registered as `guard` at deploy time — independent of the issuer, for exactly this reason. Exercised for real on the live deployment: see the README.",
+    desc: "Kill a mandate immediately. Callable by its issuer, or by whatever account is currently registered as `guard` — independent of the issuer, for exactly this reason. Exercised for real on the live deployment: see the README.",
+  },
+  {
+    name: "set_guard",
+    kind: "change",
+    sig: "set_guard(new_guard)",
+    desc: "Rotate the guard account. Callable only by the registry's `owner` — a third role, separate from `guard` and from any mandate's `issuer`, so losing the guard key doesn't mean losing the ability to replace it. Exercised live: rotated, the old key's `revoke` call was confirmed to fail, then rotated back.",
   },
   {
     name: "get_mandate",
@@ -40,6 +46,12 @@ const METHODS = [
     kind: "view",
     sig: "list_mandates(from_index, limit) → Mandate[]",
     desc: "Page through every mandate ever issued. What a watcher process (or a dashboard) polls instead of needing an indexer.",
+  },
+  {
+    name: "get_guard / get_owner",
+    kind: "view",
+    sig: "get_guard() → AccountId · get_owner() → AccountId",
+    desc: "Read the current guard and owner accounts.",
   },
 ];
 

@@ -41,13 +41,59 @@ pub struct MandateRegistry {
     pub next_id: MandateId,
     /// Account allowed to force-revoke any mandate on anomaly (the Guard watcher).
     pub guard: AccountId,
+    /// Account allowed to rotate `guard` if its key is ever lost or compromised.
+    /// Deliberately a third role, separate from `guard` and from any individual
+    /// mandate's `issuer` — losing the guard key shouldn't mean losing the
+    /// ability to replace it.
+    pub owner: AccountId,
+}
+
+/// The pre-`owner` deployed shape, kept only so `migrate` can read it back.
+#[near(serializers = [borsh])]
+pub struct MandateRegistryV0 {
+    pub mandates: LookupMap<MandateId, Mandate>,
+    pub mandate_ids: Vector<MandateId>,
+    pub next_id: MandateId,
+    pub guard: AccountId,
 }
 
 #[near]
 impl MandateRegistry {
     #[init]
-    pub fn new(guard: AccountId) -> Self {
-        Self { mandates: LookupMap::new(b"m"), mandate_ids: Vector::new(b"i"), next_id: 0, guard }
+    pub fn new(guard: AccountId, owner: AccountId) -> Self {
+        Self { mandates: LookupMap::new(b"m"), mandate_ids: Vector::new(b"i"), next_id: 0, guard, owner }
+    }
+
+    /// One-time migration for a registry deployed before `owner` existed:
+    /// carries every mandate over untouched and adds the new field. Callable
+    /// only by the contract account itself, as part of the same deploy.
+    #[private]
+    #[init(ignore_state)]
+    pub fn migrate(owner: AccountId) -> Self {
+        let old: MandateRegistryV0 = env::state_read().expect("failed to read pre-migration state");
+        Self {
+            mandates: old.mandates,
+            mandate_ids: old.mandate_ids,
+            next_id: old.next_id,
+            guard: old.guard,
+            owner,
+        }
+    }
+
+    /// Rotate the guard account — the fix for not being able to recover if
+    /// the guard's key is ever lost or compromised. Only the owner can do
+    /// this; it does not touch any existing mandate.
+    pub fn set_guard(&mut self, new_guard: AccountId) {
+        assert_eq!(env::predecessor_account_id(), self.owner, "only the owner can rotate the guard");
+        self.guard = new_guard;
+    }
+
+    pub fn get_guard(&self) -> AccountId {
+        self.guard.clone()
+    }
+
+    pub fn get_owner(&self) -> AccountId {
+        self.owner.clone()
     }
 
     /// Issue a new mandate to `owner`. Called by whoever is granting the agent its budget
@@ -153,7 +199,38 @@ mod tests {
 
     fn registry() -> MandateRegistry {
         testing_env!(ctx(accounts(0)).build());
-        MandateRegistry::new(accounts(1) /* guard */)
+        MandateRegistry::new(accounts(1) /* guard */, accounts(0) /* owner */)
+    }
+
+    #[test]
+    fn owner_can_rotate_guard_and_new_guard_can_revoke() {
+        let mut registry = registry();
+        testing_env!(ctx(accounts(0) /* owner */).build());
+        let id = registry.issue_mandate(accounts(2), NearToken::from_near(1), vec![], 0);
+        registry.set_guard(accounts(4) /* new guard */);
+        assert_eq!(registry.get_guard(), accounts(4));
+        testing_env!(ctx(accounts(4) /* new guard */).build());
+        registry.revoke(id);
+        assert!(registry.get_mandate(id).unwrap().revoked);
+    }
+
+    #[test]
+    #[should_panic(expected = "only the owner can rotate the guard")]
+    fn non_owner_cannot_rotate_guard() {
+        let mut registry = registry();
+        testing_env!(ctx(accounts(1) /* the guard itself, not the owner */).build());
+        registry.set_guard(accounts(4));
+    }
+
+    #[test]
+    #[should_panic(expected = "not authorized to revoke")]
+    fn old_guard_loses_authority_after_rotation() {
+        let mut registry = registry();
+        testing_env!(ctx(accounts(0) /* owner */).build());
+        let id = registry.issue_mandate(accounts(2), NearToken::from_near(1), vec![], 0);
+        registry.set_guard(accounts(4));
+        testing_env!(ctx(accounts(1) /* old guard */).build());
+        registry.revoke(id);
     }
 
     #[test]
