@@ -9,6 +9,8 @@ Mandate is infrastructure, not one app's feature. This repo ships two surfaces b
 
 Tracks: **AI Security & Defense** (`security`, primary) · **Agent Economy** (`agents`) · **AI Swarms** (`swarms`)
 
+**Try it live, no setup:** [mandate-near-hackathon.vercel.app](https://mandate-near-hackathon.vercel.app) — connect a testnet wallet and use Hire a Swarm for real.
+
 ## Live on testnet
 
 Both contracts are deployed and the full loop has run for real — not simulated.
