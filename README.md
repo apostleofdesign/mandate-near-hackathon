@@ -9,6 +9,15 @@ Mandate is infrastructure, not one app's feature. This repo ships two surfaces b
 
 Tracks: **Agent Economy** (`agents`) · **AI Swarms** (`swarms`) · **AI Security & Defense** (`security`) · fits **Autonomous Business** (`business`)
 
+## Live on testnet
+
+Both contracts are deployed and the full loop has run for real — not simulated.
+
+- `mandate-f70187.testnet` — [view on explorer](https://explorer.testnet.near.org/accounts/mandate-f70187.testnet)
+- `market-f70187.testnet` — [view on explorer](https://explorer.testnet.near.org/accounts/market-f70187.testnet)
+- Mandate `#0`: issued to `owner-f70187.testnet`, 0.5 NEAR daily cap, allow-listed to the market contract. Backed task `#0` (0.1 NEAR budget, "research: summarize NEAR AI Cloud pricing") end to end: `researcher-f70187.testnet` bid 0.08 NEAR, was assigned, delivered a real sha256-hashed work product, and got paid on `accept_and_settle` — [transaction](https://explorer.testnet.near.org/transactions/4QpQZgwmVRkhG1E8Jh6aziCUE85hL9ijrsgDG7h5ouHR).
+- Mandate `#1`: issued with a 1.5 NEAR cap to prove the guard has teeth. The coordinator agent posted one 1 NEAR sub-bounty (`authorize_spend` succeeded, mandate now sits at 66% of cap), then its *second* `authorize_spend` call for another 1 NEAR panicked with `daily cap exceeded` and the coordinator exited non-zero before a second sub-bounty was ever posted — the market only ever saw the one sub-bounty that actually fit.
+
 ## The problem
 
 1. Giving an AI agent a wallet means giving it a real private key: unbounded authority, with no way to cap or revoke it short of cutting the key entirely.

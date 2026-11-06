@@ -10,7 +10,7 @@ use near_sdk::{env, near, AccountId, NearToken, PanicOnDefault, Promise};
 pub type TaskId = u64;
 
 #[near(serializers = [borsh, json])]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum TaskStatus {
     Open,
     Assigned,
