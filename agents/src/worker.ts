@@ -1,13 +1,13 @@
 // A specialist worker agent: watches the Task Market for open tasks matching
-// its skill, bids, and on assignment delivers a result hash — real contract
-// calls end to end. The work product itself comes from a real NEAR AI Cloud
-// inference call (see llm.ts); that falls back to a deterministic stub on its
-// own if NEAR_AI_API_KEY isn't set, so this script needs no special-casing.
+// its skill, bids, and on assignment delivers the actual work product —
+// real contract calls end to end, stored on-chain for the requester to read.
+// The work itself comes from a real Gemini inference call (see llm.ts);
+// that falls back to a deterministic stub on its own if GEMINI_API_KEY
+// isn't set, so this script needs no special-casing.
 //
-// Usage: NEAR_WORKER_ACCOUNT=researcher.mandate.testnet TASK_MARKET_CONTRACT_ID=market-dev.<you>.testnet WORKER_SKILL=research NEAR_AI_API_KEY=... npm run worker
+// Usage: NEAR_WORKER_ACCOUNT=researcher.mandate.testnet TASK_MARKET_CONTRACT_ID=market-dev.<you>.testnet WORKER_SKILL=research GEMINI_API_KEY=... npm run worker
 import { connectAs } from "./near-client";
 import { runInference } from "./llm";
-import { createHash } from "crypto";
 
 const TASK_MARKET_CONTRACT_ID = process.env.TASK_MARKET_CONTRACT_ID ?? "";
 const WORKER_SKILL = process.env.WORKER_SKILL ?? "generic";
@@ -23,6 +23,7 @@ type Task = {
   bids: { bidder: string; price: string; note: string }[];
   assignee: string | null;
   status: TaskStatus;
+  delivery_content: string | null;
   delivery_hash: string | null;
 };
 
@@ -61,15 +62,16 @@ async function main() {
 
       if (task.status === "Assigned" && task.assignee === accountId && !delivered.has(task.id)) {
         const result = await runInference(task.spec);
-        const hash = createHash("sha256").update(result).digest("hex");
+        // The contract hashes this itself from the content on-chain now — no
+        // need to compute or send a hash separately.
         await account.functionCall({
           contractId: TASK_MARKET_CONTRACT_ID,
           methodName: "deliver",
-          args: { task_id: task.id, delivery_hash: hash },
+          args: { task_id: task.id, delivery_content: result },
           gas: 30_000_000_000_000n,
         });
         delivered.add(task.id);
-        console.log(`[worker:${WORKER_SKILL}] delivered task #${task.id}, hash ${hash}`);
+        console.log(`[worker:${WORKER_SKILL}] delivered task #${task.id}: ${result.slice(0, 120)}${result.length > 120 ? "…" : ""}`);
       }
     }
 

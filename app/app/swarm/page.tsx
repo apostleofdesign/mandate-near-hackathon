@@ -45,6 +45,7 @@ type Task = {
   bids: Bid[];
   assignee: string | null;
   status: TaskStatus;
+  delivery_content: string | null;
   delivery_hash: string | null;
 };
 
@@ -387,6 +388,22 @@ export default function SwarmPage() {
                     )}
                   </div>
                 ))}
+
+                {(task.status === "Delivered" || task.status === "Settled") && (
+                  <div className="flex flex-col gap-1.5 rounded-lg border bg-muted/30 p-3">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Delivered work
+                    </span>
+                    {task.delivery_content ? (
+                      <p className="whitespace-pre-wrap text-xs">{task.delivery_content}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Delivered before this board stored the actual content on-chain — only a hash
+                        from that delivery survives: <code className="text-[10px]">{task.delivery_hash}</code>
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {task.status === "Delivered" && accountId === task.requester && (
                   <Button

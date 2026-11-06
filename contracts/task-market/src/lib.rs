@@ -19,6 +19,10 @@ pub enum TaskStatus {
     Cancelled,
 }
 
+fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct Bid {
@@ -37,6 +41,12 @@ pub struct Task {
     pub bids: Vec<Bid>,
     pub assignee: Option<AccountId>,
     pub status: TaskStatus,
+    /// The actual work product, stored on-chain so the requester can read what
+    /// they paid for — not just prove something was computed.
+    pub delivery_content: Option<String>,
+    /// sha256 of `delivery_content`, computed on-chain in `deliver` so the hash
+    /// is guaranteed to match the content instead of being a caller-supplied
+    /// claim.
     pub delivery_hash: Option<String>,
 }
 
@@ -50,8 +60,52 @@ pub struct TaskMarket {
     pub next_id: TaskId,
 }
 
+/// The pre-`delivery_content` shape of a Task, kept only so `migrate` can
+/// read old entries back and rewrite them in the new shape.
+#[near(serializers = [borsh])]
+pub struct TaskV0 {
+    pub id: TaskId,
+    pub requester: AccountId,
+    pub spec: String,
+    pub budget: NearToken,
+    pub bids: Vec<Bid>,
+    pub assignee: Option<AccountId>,
+    pub status: TaskStatus,
+    pub delivery_hash: Option<String>,
+}
+
 #[near]
 impl TaskMarket {
+    /// One-time migration for tasks stored before `delivery_content` existed:
+    /// re-reads each one under the old shape and rewrites it with
+    /// `delivery_content: None`, leaving everything else untouched. The
+    /// contract's own top-level fields didn't change shape, so this is a
+    /// plain `#[private]` call, not an init — only the per-task entries
+    /// inside the `LookupMap` needed rewriting.
+    #[private]
+    pub fn migrate(&mut self) {
+        let old_tasks: LookupMap<TaskId, TaskV0> = LookupMap::new(b"t");
+        let ids: Vec<TaskId> = self.task_ids.iter().cloned().collect();
+        for id in ids {
+            if let Some(old) = old_tasks.get(&id) {
+                self.tasks.insert(
+                    id,
+                    Task {
+                        id: old.id,
+                        requester: old.requester.clone(),
+                        spec: old.spec.clone(),
+                        budget: old.budget,
+                        bids: old.bids.clone(),
+                        assignee: old.assignee.clone(),
+                        status: old.status.clone(),
+                        delivery_content: None,
+                        delivery_hash: old.delivery_hash.clone(),
+                    },
+                );
+            }
+        }
+    }
+
     #[init]
     pub fn new() -> Self {
         Self { tasks: LookupMap::new(b"t"), task_ids: Vector::new(b"i"), next_id: 0 }
@@ -75,6 +129,7 @@ impl TaskMarket {
                 bids: vec![],
                 assignee: None,
                 status: TaskStatus::Open,
+                delivery_content: None,
                 delivery_hash: None,
             },
         );
@@ -111,14 +166,16 @@ impl TaskMarket {
         self.tasks.insert(task_id, task);
     }
 
-    /// The assignee attests delivery with a content hash (e.g. of the work product,
-    /// a report, or a commit). What the hash commits to is a README convention,
-    /// not something this contract interprets.
-    pub fn deliver(&mut self, task_id: TaskId, delivery_hash: String) {
+    /// The assignee delivers the actual work product. Stored on-chain so the
+    /// requester can read it directly — the hash is computed here too, from
+    /// the real content, as a tamper-evident record rather than a claim the
+    /// caller could mismatch.
+    pub fn deliver(&mut self, task_id: TaskId, delivery_content: String) {
         let mut task = self.tasks.get(&task_id).cloned().expect("no such task");
         assert_eq!(Some(env::predecessor_account_id()), task.assignee, "only the assignee delivers");
         assert_eq!(task.status, TaskStatus::Assigned, "task not assigned");
-        task.delivery_hash = Some(delivery_hash);
+        task.delivery_hash = Some(to_hex(&env::sha256(delivery_content.as_bytes())));
+        task.delivery_content = Some(delivery_content);
         task.status = TaskStatus::Delivered;
         self.tasks.insert(task_id, task);
     }
@@ -126,7 +183,14 @@ impl TaskMarket {
     /// Requester accepts delivery: the winning bid pays out to the assignee, and
     /// any unspent remainder of the budget (budget minus the winning bid) returns
     /// to the requester in the same transaction — nothing is left stranded.
-    pub fn accept_and_settle(&mut self, task_id: TaskId) -> Promise {
+    ///
+    /// Returns nothing rather than a `Promise`: NEAR's protocol rejects a
+    /// function that returns a joined promise (`a.and(b)`) directly — "Returning
+    /// joint promise is currently prohibited." Each `Promise::new(...).transfer(...)`
+    /// call schedules its action the moment it's constructed regardless of
+    /// whether the value is returned, so both transfers still happen; this
+    /// function just doesn't try to hand the joined promise back as its result.
+    pub fn accept_and_settle(&mut self, task_id: TaskId) {
         let mut task = self.tasks.get(&task_id).cloned().expect("no such task");
         assert_eq!(env::predecessor_account_id(), task.requester, "only the requester settles");
         assert_eq!(task.status, TaskStatus::Delivered, "nothing delivered yet");
@@ -141,11 +205,9 @@ impl TaskMarket {
         let remainder = task.budget.as_yoctonear().saturating_sub(winning_bid.price.as_yoctonear());
         task.status = TaskStatus::Settled;
         self.tasks.insert(task_id, task);
-        let payout = Promise::new(assignee).transfer(winning_bid.price);
+        let _ = Promise::new(assignee).transfer(winning_bid.price);
         if remainder > 0 {
-            payout.and(Promise::new(requester).transfer(NearToken::from_yoctonear(remainder)))
-        } else {
-            payout
+            let _ = Promise::new(requester).transfer(NearToken::from_yoctonear(remainder));
         }
     }
 
@@ -284,7 +346,25 @@ mod tests {
         testing_env!(ctx(accounts(1), NearToken::from_yoctonear(0)).build());
         market.deliver(id, "hash".to_string());
         testing_env!(ctx(accounts(0), NearToken::from_yoctonear(0)).build());
-        let _ = market.accept_and_settle(id);
+        market.accept_and_settle(id);
         assert_eq!(market.get_task(id).unwrap().status, TaskStatus::Settled);
+    }
+
+    #[test]
+    fn deliver_stores_content_and_the_matching_sha256() {
+        let mut market = market();
+        let id = post(&mut market, accounts(0), NearToken::from_near(1));
+        testing_env!(ctx(accounts(1), NearToken::from_yoctonear(0)).build());
+        market.bid(id, NearToken::from_millinear(500), "bid".to_string());
+        testing_env!(ctx(accounts(0), NearToken::from_yoctonear(0)).build());
+        market.assign(id, accounts(1));
+        testing_env!(ctx(accounts(1), NearToken::from_yoctonear(0)).build());
+        market.deliver(id, "the real work product".to_string());
+        let task = market.get_task(id).unwrap();
+        assert_eq!(task.delivery_content.as_deref(), Some("the real work product"));
+        assert_eq!(
+            task.delivery_hash.as_deref(),
+            Some(to_hex(&near_sdk::env::sha256(b"the real work product")).as_str())
+        );
     }
 }

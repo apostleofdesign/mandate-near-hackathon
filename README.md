@@ -36,13 +36,13 @@ Both contracts are deployed and the full loop has run for real — not simulated
 - **`app/app/swarm`** — **Hire a Swarm**, the marketplace UI over Task Market: post a job, watch bids come in, assign, accept & settle — every action a real contract call.
 - **`app/app/page.tsx`** — doubles as the Mandate dashboard: every mandate's live spend vs. daily cap, read straight from `list_mandates`, no indexer.
 - **`app/app/developers`** — **Build on Mandate**, the dev-tools page: the exact two-call pattern (`authorize_spend` then your own contract call) with TypeScript and near-cli snippets, and a reference table of every Mandate method.
-- **`agents/src/{worker,coordinator,guard}.ts`** — real, wired agents, not stubs: a worker polls the board, bids on tasks matching its skill, and delivers; a coordinator holds its own mandate and sub-bounties a decomposed job to workers from its own capped treasury; a guard polls every mandate's spend velocity and revokes the ones that look wrong. The worker's actual work product comes from a real **NEAR AI Cloud** inference call (see below) — not a canned string.
+- **`agents/src/{worker,coordinator,guard}.ts`** — real, wired agents, not stubs: a worker polls the board, bids on tasks matching its skill, and delivers; a coordinator holds its own mandate and sub-bounties a decomposed job to workers from its own capped treasury; a guard polls every mandate's spend velocity and revokes the ones that look wrong. The worker's actual work product comes from a real **Gemini** inference call (see below) — not a canned string.
 
-How NEAR fits: settlement is native NEAR transfers, gated by `mandate.authorize_spend` before Task Market's own logic ever runs; mandates formalize NEAR's native **function-call access key** idea into an explicit, inspectable, revocable policy object instead of an opaque key; worker agents pay for their own output with real **NEAR AI Cloud** inference credits, the same "every job an agent does should cost real NEAR-denominated compute" thesis Illia has described publicly.
+How NEAR fits: settlement is native NEAR transfers, gated by `mandate.authorize_spend` before Task Market's own logic ever runs; mandates formalize NEAR's native **function-call access key** idea into an explicit, inspectable, revocable policy object instead of an opaque key. Workers get paid in real NEAR the moment a job settles — the inference call that produces the work itself runs on Gemini, separate from that on-chain payout.
 
-## Why NEAR AI Cloud, not Groq or OpenRouter
+## Why Gemini
 
-The worker agent needed a real LLM call. NEAR AI Cloud (`cloud-api.near.ai`) is OpenAI-SDK-compatible — same `openai` npm package, same integration cost as Groq or OpenRouter — but it's a named ecosystem partner in the hackathon's own toolkit, and it's the literal mechanism behind this project's revenue story: every job a worker completes should burn real, metered NEAR AI inference, not a free third-party API call that happens to be running near NEAR code. It's a younger, less-documented API than Groq/OpenRouter (no public rate limits or SLA at the time of writing), so `agents/src/llm.ts` falls back to a deterministic stub whenever `NEAR_AI_API_KEY` isn't set — the demo never breaks even if the API has issues, but the real call is what runs when it's configured.
+The worker agent needs a real LLM call to produce the work it delivers. Gemini's API is OpenAI-SDK-compatible (`generativelanguage.googleapis.com/v1beta/openai/`) — the exact same `openai` npm package `agents/src/llm.ts` already used, swapped to a different base URL and key — and the free tier needs no billing setup, which matters for a demo other people will actually run. `agents/src/llm.ts` falls back to a deterministic stub whenever `GEMINI_API_KEY` isn't set, so the bid/assign/deliver/settle loop stays demoable either way; the real call is what runs when it's configured.
 
 ## Why this, specifically
 
@@ -59,7 +59,7 @@ Everything else — the cap, the allow-list, the day rollover, who can revoke, t
 ## Status
 
 - `contracts/mandate` and `contracts/task-market` — full logic including `list_mandates`/`list_tasks` pagination, `cancel_task`, the settlement remainder refund, and a rotatable `guard` (`set_guard`, owner-gated); 21 unit tests (`cargo test`) cover the cap, allow-list, revoke-authorization, guard-rotation, and status-transition rules. Ready to build and deploy.
-- `agents/src/worker.ts`, `coordinator.ts`, `guard.ts` — real polling loops and real contract calls end to end. `worker.ts`'s work product is a real NEAR AI Cloud chat completion when `NEAR_AI_API_KEY` is set, a deterministic stub otherwise.
+- `agents/src/worker.ts`, `coordinator.ts`, `guard.ts` — real polling loops and real contract calls end to end. `worker.ts`'s work product is a real Gemini chat completion when `GEMINI_API_KEY` is set, a deterministic stub otherwise, and is now stored on-chain in full rather than just as a hash.
 - `app/app/swarm`, `app/app/developers`, and the Mandates panel on `app/app/page.tsx` — real, wired UI; typechecked and production-built clean.
 
 ## Run it
@@ -107,10 +107,10 @@ npm install
 NEAR_WORKER_ACCOUNT=researcher.mandate.testnet \
 TASK_MARKET_CONTRACT_ID=market-dev.<you>.testnet \
 WORKER_SKILL=research \
-NEAR_AI_API_KEY=<your key from cloud.near.ai> \
+GEMINI_API_KEY=<your free key from aistudio.google.com/apikey> \
 npm run worker
 ```
-Expected result: within one poll interval, the worker logs a bid and it appears on the job's card at `localhost:3000/swarm`. Click "Assign" on that bid (as the job's poster); within the next poll the worker calls NEAR AI Cloud for the actual deliverable and logs a delivery. Click "Accept & settle" to pay it — `get_task` now shows `Settled`. Omit `NEAR_AI_API_KEY` to see the same flow run on the deterministic stub instead.
+Expected result: within one poll interval, the worker logs a bid and it appears on the job's card at `localhost:3000/swarm`. Click "Assign" on that bid (as the job's poster); within the next poll the worker calls Gemini for the actual deliverable, stores it on-chain, and logs a delivery — the delivered text is now readable right on the job's card, not just a hash. Click "Accept & settle" to pay it — `get_task` now shows `Settled`. Omit `GEMINI_API_KEY` to see the same flow run on the deterministic stub instead.
 
 **5 — Run the Guard and watch it fail a mandate closed.**
 
@@ -134,7 +134,7 @@ Expected result: `authorize_spend` panics with `daily cap exceeded` on the first
 - All code written from 28 Oct 2026 onward, inside the eligible window that opened with the announcement on 19 Oct 2026. Direction was revised twice since: briefly to a universal checkout, then to Hire a Swarm plus the dev-tools page after reading the hackathon judges' public statements — the checkout surface was removed from this repo once Hire a Swarm became the flagship, to keep the submission focused on one well-built surface instead of two half-finished ones.
 - Built with AI pair-programming (Claude Code) for contract and scaffold code and for the judge/API research that shaped the direction; architecture, track strategy and all design decisions directed by the team.
 - No pre-existing libraries or templates beyond standard `near-sdk`, `near-api-js`, `openai`, and `next`/`shadcn` scaffolding.
-- NEAR AI Cloud is OpenAI-SDK-compatible per `docs.near.ai/cloud/quickstart` — base URL `https://cloud-api.near.ai/v1`, `Authorization: Bearer <key>`. No pricing/rate-limit/SLA is published at the time of writing, hence the deterministic-stub fallback in `agents/src/llm.ts`.
+- Gemini's OpenAI-compatible endpoint is documented at `ai.google.dev/gemini-api/docs/openai` — base URL `https://generativelanguage.googleapis.com/v1beta/openai/`, `Authorization: Bearer <key>`. `agents/src/llm.ts` falls back to a deterministic stub when `GEMINI_API_KEY` isn't set, so the demo never depends on the key being present.
 
 ## License
 
