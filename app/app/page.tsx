@@ -6,9 +6,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { getWallet, getMandateContract, MANDATE_CONTRACT_ID, TASK_MARKET_CONTRACT_ID } from "../lib/near";
+import { viewFunction, MANDATE_CONTRACT_ID, TASK_MARKET_CONTRACT_ID } from "../lib/near";
+import { useNearWallet } from "../lib/useNearWallet";
 import { toNear } from "../lib/format";
-import type { WalletConnection } from "near-api-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -57,34 +57,26 @@ const SURFACES = [
 ];
 
 export default function Home() {
-  const [wallet, setWallet] = useState<WalletConnection | null>(null);
-  const [accountId, setAccountId] = useState<string | null>(null);
+  const { accountId, connect } = useNearWallet();
   const [mandates, setMandates] = useState<Mandate[] | null>(null);
 
-  useEffect(() => {
-    getWallet().then((w) => {
-      setWallet(w);
-      setAccountId(w.isSignedIn() ? w.getAccountId() : null);
-    });
-  }, []);
-
   const refreshMandates = useCallback(async () => {
-    if (!wallet) return;
     try {
-      const mandate = await getMandateContract(wallet);
-      // @ts-expect-error near-api-js Contract view methods are attached dynamically
-      const result: Mandate[] = await mandate.list_mandates({ from_index: 0, limit: 50 });
+      const result = await viewFunction<Mandate[]>(MANDATE_CONTRACT_ID, "list_mandates", {
+        from_index: 0,
+        limit: 50,
+      });
       setMandates(result.slice().reverse());
     } catch {
       // Mandate isn't deployed/configured yet — show an empty state instead
       // of an unhandled rejection. See README "Run it" to deploy it.
       setMandates([]);
     }
-  }, [wallet]);
+  }, []);
 
   useEffect(() => {
-    if (wallet) refreshMandates();
-  }, [wallet, refreshMandates]);
+    refreshMandates();
+  }, [refreshMandates]);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-10 px-6 py-16">
@@ -124,7 +116,7 @@ export default function Home() {
           Signed in as <span className="font-medium">{accountId}</span>
         </div>
       ) : (
-        <Button onClick={() => wallet?.requestSignIn({ contractId: MANDATE_CONTRACT_ID, keyType: "ed25519" })} className="w-fit gap-2">
+        <Button onClick={() => connect()} className="w-fit gap-2">
           <RiWalletLine className="size-4" />
           Connect wallet
         </Button>

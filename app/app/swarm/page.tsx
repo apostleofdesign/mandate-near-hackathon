@@ -5,7 +5,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { WalletConnection } from "near-api-js";
 import { toast } from "sonner";
 import {
   RiGroupLine,
@@ -14,7 +13,8 @@ import {
   RiSendPlaneLine,
   RiCheckboxCircleFill,
 } from "@remixicon/react";
-import { getWallet, getTaskMarketContract, MANDATE_CONTRACT_ID } from "../../lib/near";
+import { viewFunction, callFunction, TASK_MARKET_CONTRACT_ID } from "../../lib/near";
+import { useNearWallet } from "../../lib/useNearWallet";
 import { toYocto, toNear } from "../../lib/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -47,38 +47,30 @@ const STATUS_VARIANT: Record<TaskStatus, "default" | "secondary" | "destructive"
 };
 
 export default function SwarmPage() {
-  const [wallet, setWallet] = useState<WalletConnection | null>(null);
-  const [accountId, setAccountId] = useState<string | null>(null);
+  const { wallet, accountId, connect } = useNearWallet();
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [spec, setSpec] = useState("");
   const [budget, setBudget] = useState("2");
   const [posting, setPosting] = useState(false);
   const [busyTaskId, setBusyTaskId] = useState<number | null>(null);
 
-  useEffect(() => {
-    getWallet().then((w) => {
-      setWallet(w);
-      setAccountId(w.isSignedIn() ? w.getAccountId() : null);
-    });
-  }, []);
-
   const refresh = useCallback(async () => {
-    if (!wallet) return;
     try {
-      const taskMarket = await getTaskMarketContract(wallet);
-      // @ts-expect-error near-api-js Contract view methods are attached dynamically
-      const result: Task[] = await taskMarket.list_tasks({ from_index: 0, limit: 50 });
+      const result = await viewFunction<Task[]>(TASK_MARKET_CONTRACT_ID, "list_tasks", {
+        from_index: 0,
+        limit: 50,
+      });
       setTasks(result.slice().reverse());
     } catch {
       // Task Market isn't deployed/configured yet — show an empty board instead
       // of an unhandled rejection. See README "Run it" to deploy it.
       setTasks([]);
     }
-  }, [wallet]);
+  }, []);
 
   useEffect(() => {
-    if (wallet) refresh();
-  }, [wallet, refresh]);
+    refresh();
+  }, [refresh]);
 
   async function postJob() {
     if (!wallet) return;
@@ -88,9 +80,7 @@ export default function SwarmPage() {
     }
     setPosting(true);
     try {
-      const taskMarket = await getTaskMarketContract(wallet);
-      // @ts-expect-error same as above
-      await taskMarket.post_task({ spec: spec.trim() }, undefined, toYocto(budget));
+      await callFunction(wallet, TASK_MARKET_CONTRACT_ID, "post_task", { spec: spec.trim() }, toYocto(budget));
       toast.success("Job posted", { description: "Worker agents can now bid on it." });
       setSpec("");
       await refresh();
@@ -105,9 +95,7 @@ export default function SwarmPage() {
     if (!wallet) return;
     setBusyTaskId(taskId);
     try {
-      const taskMarket = await getTaskMarketContract(wallet);
-      // @ts-expect-error same as above
-      await taskMarket.assign({ task_id: taskId, bidder });
+      await callFunction(wallet, TASK_MARKET_CONTRACT_ID, "assign", { task_id: taskId, bidder });
       toast.success(`Assigned task #${taskId} to ${bidder}`);
       await refresh();
     } catch (err) {
@@ -121,9 +109,7 @@ export default function SwarmPage() {
     if (!wallet) return;
     setBusyTaskId(taskId);
     try {
-      const taskMarket = await getTaskMarketContract(wallet);
-      // @ts-expect-error same as above
-      await taskMarket.accept_and_settle({ task_id: taskId });
+      await callFunction(wallet, TASK_MARKET_CONTRACT_ID, "accept_and_settle", { task_id: taskId });
       toast.success(`Task #${taskId} settled — payment sent.`);
       await refresh();
     } catch (err) {
@@ -149,8 +135,8 @@ export default function SwarmPage() {
         </p>
       </div>
 
-      {!accountId && wallet && (
-        <Button onClick={() => wallet.requestSignIn({ contractId: MANDATE_CONTRACT_ID, keyType: "ed25519" })} className="w-fit gap-2">
+      {!accountId && (
+        <Button onClick={() => connect()} className="w-fit gap-2">
           <RiWalletLine className="size-4" />
           Connect wallet
         </Button>
