@@ -36,7 +36,7 @@ import {
   RiArrowRightSLine,
   RiLockLine,
 } from "@remixicon/react";
-import { viewFunction, callFunction, getAccountBalance, TASK_MARKET_CONTRACT_ID, NETWORK_ID } from "../../lib/near";
+import { viewFunction, callFunction, getFunctionCallResult, getAccountBalance, TASK_MARKET_CONTRACT_ID, NETWORK_ID } from "../../lib/near";
 import { useNearWallet } from "../../lib/useNearWallet";
 import { toYocto, toNear } from "../../lib/format";
 import { Button } from "@/components/ui/button";
@@ -205,10 +205,15 @@ export default function SwarmPage() {
     }
     setPosting(true);
     try {
-      await callFunction(wallet, TASK_MARKET_CONTRACT_ID, "post_task", { spec: spec.trim() }, toYocto(budget));
-      toast.success("Job posted", { description: "Worker agents can now bid on it — open your job any time to see them." });
+      const outcome = await callFunction(wallet, TASK_MARKET_CONTRACT_ID, "post_task", { spec: spec.trim() }, toYocto(budget));
+      const newTaskId = getFunctionCallResult<number>(outcome);
+      toast.success("Job posted", { description: "Worker agents can now bid on it." });
       setSpec("");
       await refresh();
+      // Open the new job's own thread right away instead of leaving it to be
+      // found by scrolling the board — this is exactly the job someone just
+      // described and funded, so it's the next thing they want to see.
+      setSelectedTaskId(newTaskId);
     } catch (err) {
       toast.error("Couldn't post job", { description: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -443,7 +448,7 @@ export default function SwarmPage() {
 
       {/* Private per-job thread */}
       <Dialog open={selectedTaskId !== null} onOpenChange={(open) => !open && setSelectedTaskId(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-2xl">
           {selectedTask && (
             <>
               <DialogHeader>

@@ -5,7 +5,7 @@
 import { NearConnector } from "@hot-labs/near-connect";
 import type { NearWalletBase } from "@hot-labs/near-connect";
 import { providers } from "near-api-js";
-import type { AccountView, CodeResult } from "near-api-js/lib/providers/provider";
+import type { AccountView, CodeResult, FinalExecutionOutcome } from "near-api-js/lib/providers/provider";
 
 export type { NearWalletBase };
 
@@ -64,6 +64,13 @@ export async function getAccountBalance(accountId: string): Promise<string> {
     finality: "optimistic",
   });
   return res.amount;
+}
+
+// A change call's own return value (e.g. post_task's new TaskId) — buried a
+// few layers into the wallet's FinalExecutionOutcome, this is the same
+// decode near-api-js's own providers.getTransactionLastResult does.
+export function getFunctionCallResult<T>(outcome: FinalExecutionOutcome): T {
+  return providers.getTransactionLastResult(outcome) as T;
 }
 
 // Change calls need a signed-in wallet.
