@@ -59,15 +59,20 @@ async function main() {
   console.log(`[worker:${WORKER_PERSONA}] ${accountId} watching ${TASK_MARKET_CONTRACT_ID}`);
   console.log(`[worker:${WORKER_PERSONA}] GEMINI_API_KEY ${process.env.GEMINI_API_KEY ? `present (${process.env.GEMINI_API_KEY.length} chars)` : "NOT SET — deliveries will be stubbed"}`);
 
+  // Two layers, not one: an in-memory guard stops this process from ever
+  // double-submitting for a task it already acted on in its own lifetime —
+  // needed because list_tasks reads with "optimistic" finality, which can
+  // briefly lag a transaction this same process just sent, so the very next
+  // poll can still show a task as un-bid-on moments after bidding on it. The
+  // on-chain check (task.bids / task.status) is the second layer, restoring
+  // that same guarantee across a process restart, when memory is gone but
+  // the chain isn't. Neither alone was enough: memory-only duplicated bids
+  // after a restart; chain-only duplicated them within a single process's
+  // own lifetime, against its own eventual-consistency lag.
+  const bidOn = new Set<number>();
+  const delivered = new Set<number>();
+
   while (true) {
-    // Deliberately no in-memory "have I already bid/delivered" tracking here.
-    // This process gets restarted (a transient RPC/nonce hiccup on one task
-    // shouldn't take the whole worker down — see the catches below), and an
-    // in-memory Set resets on restart while the chain doesn't: relying on
-    // memory caused both duplicate bids and a worse failure mode, where a
-    // restarted process re-ran a whole Gemini call for a task it had already
-    // delivered. Each task's own on-chain state is restart-proof, so that's
-    // the only thing checked.
     const tasks: Task[] = await account.viewFunction({
       contractId: TASK_MARKET_CONTRACT_ID,
       methodName: "list_tasks",
@@ -76,7 +81,7 @@ async function main() {
 
     for (const task of tasks) {
       const matchesSkill = task.spec.toLowerCase().includes(WORKER_SKILL.toLowerCase());
-      const alreadyBid = task.bids.some((b) => b.bidder === accountId);
+      const alreadyBid = bidOn.has(task.id) || task.bids.some((b) => b.bidder === accountId);
 
       if (task.status === "Open" && matchesSkill && !alreadyBid) {
         try {
@@ -87,6 +92,7 @@ async function main() {
             args: { task_id: task.id, price: price.toString(), note: `${WORKER_PERSONA} worker bid` },
             gas: 30_000_000_000_000n,
           });
+          bidOn.add(task.id);
           console.log(`[worker:${WORKER_PERSONA}] bid ${price}y on task #${task.id}: "${task.spec}"`);
         } catch (err) {
           // A stale/duplicate submission (e.g. the RPC layer retrying a call
@@ -98,7 +104,7 @@ async function main() {
         }
       }
 
-      if (task.status === "Assigned" && task.assignee === accountId) {
+      if (task.status === "Assigned" && task.assignee === accountId && !delivered.has(task.id)) {
         try {
           const result = await runInference(personaPrompt(WORKER_PERSONA, task.spec));
           // The contract hashes this itself from the content on-chain now —
@@ -109,6 +115,7 @@ async function main() {
             args: { task_id: task.id, delivery_content: result },
             gas: 30_000_000_000_000n,
           });
+          delivered.add(task.id);
           console.log(`[worker:${WORKER_PERSONA}] delivered task #${task.id}: ${result.slice(0, 120)}${result.length > 120 ? "…" : ""}`);
         } catch (err) {
           console.warn(`[worker:${WORKER_PERSONA}] deliver on task #${task.id} failed, will recheck next poll: ${err instanceof Error ? err.message : String(err)}`);
