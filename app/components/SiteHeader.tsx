@@ -13,6 +13,7 @@ import { RiWalletLine, RiLogoutBoxRLine, RiSunLine, RiMoonClearLine } from "@rem
 const NAV = [
   { href: "/swarm", label: "Hire a Swarm" },
   { href: "/developers", label: "Developers" },
+  { href: "/about", label: "About" },
 ];
 
 export default function SiteHeader() {
