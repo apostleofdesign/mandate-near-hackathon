@@ -6,7 +6,8 @@
   "scripts": {
     "coordinator": "tsx src/coordinator.ts",
     "worker": "tsx src/worker.ts",
-    "guard": "tsx src/guard.ts"
+    "guard": "tsx src/guard.ts",
+    "start": "tsx src/run-all-workers.ts"
   },
   "dependencies": {
     "near-api-js": "^5.0.1",

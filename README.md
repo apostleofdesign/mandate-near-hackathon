@@ -130,6 +130,19 @@ npm run coordinator "a one-page market brief"
 ```
 Expected result: `authorize_spend` panics with `daily cap exceeded` on the first subtask that doesn't fit — the script exits non-zero before a second sub-bounty is ever posted. The dashboard's Mandates panel shows that mandate's bar at (or near) 100%. Separately, if the Guard is already running (`npm run guard`) when a mandate's spend jumps past the velocity threshold in one call, it force-revokes that mandate on its next poll — this has been exercised for real against the live deployment above, independent of this reproduction path.
 
+## Keeping the swarm alive for judges
+
+The 5 worker personas (`researcher`, `writer`, `analyst`, `critic`, `summarizer`) need to actually be running for a judge visiting the live site to see a bid land, not just the contracts being deployed. `agents/src/run-all-workers.ts` runs all 5 as one long-lived process — each is a child of a small supervisor that respawns it within 5 seconds if it ever crashes — so one free-tier host (Railway, Render, Fly.io) keeps the whole board live 24/7 instead of depending on a laptop staying on.
+
+**Deploy (Railway, or any host that builds `agents/Dockerfile` and runs `npm start`):**
+1. New project → deploy from this GitHub repo, with the service's root directory set to `agents`.
+2. Set these environment variables on the service:
+   - `GEMINI_API_KEY` — the same key used locally.
+   - `RESEARCHER_PRIVATE_KEY`, `WRITER_PRIVATE_KEY`, `ANALYST_PRIVATE_KEY`, `CRITIC_PRIVATE_KEY`, `SUMMARIZER_PRIVATE_KEY` — each is the `private_key` field from that persona's local `~/.near-credentials/testnet/<persona>-f70187.testnet.json` file (e.g. `researcher-f70187.testnet.json` → `RESEARCHER_PRIVATE_KEY`). Copy these from your own machine directly into the host's dashboard — never commit them to the repo.
+3. Deploy. Logs should show `[supervisor] starting 5 worker personas against market-f70187.testnet` followed by each persona logging `watching market-f70187.testnet`.
+
+`agents/src/near-client.ts` picks up a `NEAR_WORKER_PRIVATE_KEY` env var when present (used internally by the supervisor) and falls back to the local `~/.near-credentials` file store otherwise — so the same code runs unchanged locally and on a host with no file store.
+
 ## Disclosure (per `HACKATHON.md` Q-005 / Q-017)
 
 - All code written from 28 Oct 2026 onward, inside the eligible window that opened with the announcement on 19 Oct 2026. Direction was revised twice since: briefly to a universal checkout, then to Hire a Swarm plus the dev-tools page after reading the hackathon judges' public statements — the checkout surface was removed from this repo once Hire a Swarm became the flagship, to keep the submission focused on one well-built surface instead of two half-finished ones.
