@@ -55,12 +55,19 @@ async function main() {
   if (!TASK_MARKET_CONTRACT_ID) throw new Error("set TASK_MARKET_CONTRACT_ID");
   const near = await connectAs(accountId);
   const account = await near.account(accountId);
-  const bidOn = new Set<number>();
-  const delivered = new Set<number>();
 
   console.log(`[worker:${WORKER_PERSONA}] ${accountId} watching ${TASK_MARKET_CONTRACT_ID}`);
+  console.log(`[worker:${WORKER_PERSONA}] GEMINI_API_KEY ${process.env.GEMINI_API_KEY ? `present (${process.env.GEMINI_API_KEY.length} chars)` : "NOT SET — deliveries will be stubbed"}`);
 
   while (true) {
+    // Deliberately no in-memory "have I already bid/delivered" tracking here.
+    // This process gets restarted (a transient RPC/nonce hiccup on one task
+    // shouldn't take the whole worker down — see the catches below), and an
+    // in-memory Set resets on restart while the chain doesn't: relying on
+    // memory caused both duplicate bids and a worse failure mode, where a
+    // restarted process re-ran a whole Gemini call for a task it had already
+    // delivered. Each task's own on-chain state is restart-proof, so that's
+    // the only thing checked.
     const tasks: Task[] = await account.viewFunction({
       contractId: TASK_MARKET_CONTRACT_ID,
       methodName: "list_tasks",
@@ -69,31 +76,43 @@ async function main() {
 
     for (const task of tasks) {
       const matchesSkill = task.spec.toLowerCase().includes(WORKER_SKILL.toLowerCase());
+      const alreadyBid = task.bids.some((b) => b.bidder === accountId);
 
-      if (task.status === "Open" && matchesSkill && !bidOn.has(task.id)) {
-        const price = (BigInt(task.budget) * BID_FRACTION_PCT) / 100n;
-        await account.functionCall({
-          contractId: TASK_MARKET_CONTRACT_ID,
-          methodName: "bid",
-          args: { task_id: task.id, price: price.toString(), note: `${WORKER_PERSONA} worker bid` },
-          gas: 30_000_000_000_000n,
-        });
-        bidOn.add(task.id);
-        console.log(`[worker:${WORKER_PERSONA}] bid ${price}y on task #${task.id}: "${task.spec}"`);
+      if (task.status === "Open" && matchesSkill && !alreadyBid) {
+        try {
+          const price = (BigInt(task.budget) * BID_FRACTION_PCT) / 100n;
+          await account.functionCall({
+            contractId: TASK_MARKET_CONTRACT_ID,
+            methodName: "bid",
+            args: { task_id: task.id, price: price.toString(), note: `${WORKER_PERSONA} worker bid` },
+            gas: 30_000_000_000_000n,
+          });
+          console.log(`[worker:${WORKER_PERSONA}] bid ${price}y on task #${task.id}: "${task.spec}"`);
+        } catch (err) {
+          // A stale/duplicate submission (e.g. the RPC layer retrying a call
+          // that had already landed) shows up here as a contract-side
+          // rejection. Not fatal — log it and let the next poll re-check
+          // this task's real on-chain state instead of crashing the whole
+          // worker over one task.
+          console.warn(`[worker:${WORKER_PERSONA}] bid on task #${task.id} failed, will recheck next poll: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
 
-      if (task.status === "Assigned" && task.assignee === accountId && !delivered.has(task.id)) {
-        const result = await runInference(personaPrompt(WORKER_PERSONA, task.spec));
-        // The contract hashes this itself from the content on-chain now — no
-        // need to compute or send a hash separately.
-        await account.functionCall({
-          contractId: TASK_MARKET_CONTRACT_ID,
-          methodName: "deliver",
-          args: { task_id: task.id, delivery_content: result },
-          gas: 30_000_000_000_000n,
-        });
-        delivered.add(task.id);
-        console.log(`[worker:${WORKER_PERSONA}] delivered task #${task.id}: ${result.slice(0, 120)}${result.length > 120 ? "…" : ""}`);
+      if (task.status === "Assigned" && task.assignee === accountId) {
+        try {
+          const result = await runInference(personaPrompt(WORKER_PERSONA, task.spec));
+          // The contract hashes this itself from the content on-chain now —
+          // no need to compute or send a hash separately.
+          await account.functionCall({
+            contractId: TASK_MARKET_CONTRACT_ID,
+            methodName: "deliver",
+            args: { task_id: task.id, delivery_content: result },
+            gas: 30_000_000_000_000n,
+          });
+          console.log(`[worker:${WORKER_PERSONA}] delivered task #${task.id}: ${result.slice(0, 120)}${result.length > 120 ? "…" : ""}`);
+        } catch (err) {
+          console.warn(`[worker:${WORKER_PERSONA}] deliver on task #${task.id} failed, will recheck next poll: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     }
 
