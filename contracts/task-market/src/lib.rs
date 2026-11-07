@@ -167,7 +167,14 @@ impl TaskMarket {
         let mut task = self.tasks.get(&task_id).cloned().expect("no such task");
         assert_eq!(task.status, TaskStatus::Open, "task not open for bids");
         assert!(price.as_yoctonear() <= task.budget.as_yoctonear(), "bid exceeds budget");
-        task.bids.push(Bid { bidder: env::predecessor_account_id(), price, note });
+        let bidder = env::predecessor_account_id();
+        // A client can end up resubmitting the same logical bid (e.g. a
+        // transaction-layer nonce retry firing after the original already
+        // landed) — without this guard that silently creates a second bid
+        // row instead of failing, since nothing else here is keyed on the
+        // bidder.
+        assert!(!task.bids.iter().any(|b| b.bidder == bidder), "already bid on this task");
+        task.bids.push(Bid { bidder, price, note });
         self.tasks.insert(task_id, task);
     }
 
@@ -285,6 +292,16 @@ mod tests {
         let id = post(&mut market, accounts(0), NearToken::from_millinear(500));
         testing_env!(ctx(accounts(1), NearToken::from_yoctonear(0)).build());
         market.bid(id, NearToken::from_near(1), "too much".to_string());
+    }
+
+    #[test]
+    #[should_panic(expected = "already bid on this task")]
+    fn second_bid_from_same_bidder_panics() {
+        let mut market = market();
+        let id = post(&mut market, accounts(0), NearToken::from_near(1));
+        testing_env!(ctx(accounts(1), NearToken::from_yoctonear(0)).build());
+        market.bid(id, NearToken::from_millinear(500), "first".to_string());
+        market.bid(id, NearToken::from_millinear(400), "retry".to_string());
     }
 
     #[test]
