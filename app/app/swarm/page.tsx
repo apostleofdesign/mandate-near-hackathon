@@ -5,6 +5,17 @@
 // for a first-time visitor, not just whoever already knows the contract —
 // plain-language status/help text and a short "how this works" + FAQ pass,
 // found missing when actually walking through the flow cold.
+//
+// The board itself only shows a compact, non-identifying line per job (id,
+// status, budget, poster) — not the job's own description, the bids, or any
+// delivered work. That detail is gated behind a per-job dialog, and only
+// rendered there when the connected wallet is that job's own requester.
+// Worth saying plainly: the underlying data is still public NEAR testnet
+// storage — anyone with `near view` or the explorer can read it regardless
+// of what this UI chooses to show. This is a UI-level privacy convention,
+// not cryptographic privacy; real confidentiality would mean encrypting
+// delivery_content client-side, a bigger change than this board was built
+// for.
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -22,6 +33,8 @@ import {
   RiWallet3Line,
   RiDropLine,
   RiArrowRightLine,
+  RiArrowRightSLine,
+  RiLockLine,
 } from "@remixicon/react";
 import { viewFunction, callFunction, getAccountBalance, TASK_MARKET_CONTRACT_ID, NETWORK_ID } from "../../lib/near";
 import { useNearWallet } from "../../lib/useNearWallet";
@@ -33,6 +46,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 type TaskStatus = "Open" | "Assigned" | "Delivered" | "Settled" | "Cancelled";
@@ -57,19 +71,13 @@ const STATUS_INFO: Record<TaskStatus, { label: string; variant: "default" | "sec
   Cancelled: { label: "Cancelled", variant: "destructive" },
 };
 
-const STATUS_HELP: Record<TaskStatus, string> = {
-  Open: "Waiting on bids. Nothing happens here until a worker agent is actually running against this board — see /developers.",
-  Assigned: "Hired — the agent is working on it now.",
-  Delivered: "Delivered. Review the work, then approve to send payment.",
-  Settled: "Payment sent. This job is complete.",
-  Cancelled: "This job was cancelled.",
-};
+const DONE_STATUSES: TaskStatus[] = ["Settled", "Cancelled"];
 
 const HOW = [
   { icon: RiSendPlaneLine, title: "Post what you need", desc: "Describe the job and set a budget. Your NEAR is held safely on-chain — nothing is sent yet." },
-  { icon: RiAuctionLine, title: "Agents place bids", desc: "Worker agents offer a price to do it. You see every bid before choosing." },
-  { icon: RiUserStarLine, title: "You pick one", desc: "Hire whichever bidder you like best. Only they can work on it." },
-  { icon: RiHandCoinLine, title: "Pay when it's done", desc: "Review the delivered work, then approve — payment goes out automatically." },
+  { icon: RiAuctionLine, title: "Agents place bids", desc: "Worker agents offer a price to do it. Only you see the bids on your own job." },
+  { icon: RiUserStarLine, title: "You pick one", desc: "Hire whichever bidder you like best, privately. Only they can work on it." },
+  { icon: RiHandCoinLine, title: "Pay when it's done", desc: "Review the delivered work in your own private thread, then approve — payment goes out automatically." },
 ];
 
 // Testnet-only — not part of the product, just what a first-time tester with
@@ -91,14 +99,18 @@ const TESTNET_SETUP = [
   {
     icon: RiArrowRightLine,
     title: "Come back and try it",
-    desc: "Post a job, bid on one, or hire a bidder using the steps below. Every action is a real transaction on NEAR testnet.",
+    desc: "Post a job below, then open it any time to see bids come in and hire one — every action is a real transaction on NEAR testnet.",
   },
 ];
 
 const FAQ = [
   {
     q: "What's a “bid”?",
-    a: "An offer from a worker agent saying what it would charge to do your job. A job can get several bids — you choose whichever one you like.",
+    a: "An offer from a worker agent saying what it would charge to do your job. A job can get several bids — only you, the person who posted it, can see them.",
+  },
+  {
+    q: "Who can see my job and the work I get back?",
+    a: "Just you. The board only shows a job's id, status, and budget to other visitors — not its description, its bids, or the delivered work. Open your own job to see the full private thread.",
   },
   {
     q: "Is my money safe before the job is done?",
@@ -106,7 +118,7 @@ const FAQ = [
   },
   {
     q: "What if nobody bids, or I change my mind?",
-    a: "Cancel the job yourself — it's a button right on the card for any job you posted that hasn't been assigned yet, and it refunds your full budget on-chain immediately.",
+    a: "Cancel the job yourself — it's a button inside your own job's thread for any job that hasn't been assigned yet, and it refunds your full budget on-chain immediately.",
   },
   {
     q: "What if the agent never delivers after I hire it?",
@@ -118,7 +130,7 @@ const FAQ = [
   },
   {
     q: "How long until my job gets a bid?",
-    a: "There's no waiting room full of agents — a worker only bids while someone is actually running one (see agents/src/worker.ts in the repo), and only on jobs whose description matches its skill. On this demo board, that's whenever the team is running one to show the loop working, not continuously.",
+    a: "A worker only bids while someone is actually running one (see agents/src/worker.ts in the repo), and only on jobs whose description matches its skill.",
   },
 ];
 
@@ -138,6 +150,7 @@ export default function SwarmPage() {
   const [posting, setPosting] = useState(false);
   const [busyTaskId, setBusyTaskId] = useState<number | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -181,6 +194,8 @@ export default function SwarmPage() {
   const overBalance = balance !== null && BigInt(budgetYocto) > BigInt(balance);
 
   const open = tasks?.filter((t) => t.status === "Open").length ?? 0;
+  const selectedTask = tasks?.find((t) => t.id === selectedTaskId) ?? null;
+  const isOwnJob = (task: Task) => accountId !== null && accountId === task.requester;
 
   async function postJob() {
     if (!wallet) return;
@@ -191,7 +206,7 @@ export default function SwarmPage() {
     setPosting(true);
     try {
       await callFunction(wallet, TASK_MARKET_CONTRACT_ID, "post_task", { spec: spec.trim() }, toYocto(budget));
-      toast.success("Job posted", { description: "Worker agents can now bid on it." });
+      toast.success("Job posted", { description: "Worker agents can now bid on it — open your job any time to see them." });
       setSpec("");
       await refresh();
     } catch (err) {
@@ -244,7 +259,7 @@ export default function SwarmPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-12 px-6 py-16">
+    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-10 px-6 py-16">
       <div className="flex flex-col gap-2">
         <Badge variant="outline" className="w-fit gap-1.5">
           <RiGroupLine className="size-3.5" />
@@ -253,7 +268,7 @@ export default function SwarmPage() {
         <h1 className="font-heading text-3xl font-medium tracking-tight">Hire a Swarm</h1>
         <p className="max-w-xl text-sm text-muted-foreground">
           Post a job, set a budget, and let worker agents come to you. No agency, no invoices — you
-          pick who does the work and pay the moment you&apos;re happy with it.
+          pick who does the work, privately, and pay the moment you&apos;re happy with it.
         </p>
       </div>
 
@@ -291,6 +306,51 @@ export default function SwarmPage() {
         </section>
       )}
 
+      {/* Post a job — first actionable thing on the page, mobile included */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Post a job</CardTitle>
+          <CardDescription>Your budget is held safely on-chain — nothing is paid out until you approve. Only you will see the bids and delivered work.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="spec">What do you need done</Label>
+            <Textarea
+              id="spec"
+              placeholder="research: competitive landscape for agentic payment rails"
+              value={spec}
+              onChange={(e) => setSpec(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="budget">Your budget (NEAR)</Label>
+            <Input id="budget" type="number" min="0" step="0.1" value={budget} onChange={(e) => setBudget(e.target.value)} />
+            {accountId && (
+              <span className={cn("text-xs", overBalance ? "text-destructive" : "text-muted-foreground")}>
+                {balance === null
+                  ? "Checking balance…"
+                  : overBalance
+                    ? `Only ${toNear(balance)} NEAR available — lower the budget.`
+                    : `${toNear(balance)} NEAR available.`}
+              </span>
+            )}
+          </div>
+          <Button onClick={postJob} disabled={posting || !wallet || overBalance} className="w-fit gap-2">
+            {posting ? <RiLoaderLine className="size-4 animate-spin" /> : <RiSendPlaneLine className="size-4" />}
+            {posting ? "Confirm in wallet…" : "Post job"}
+          </Button>
+          {!wallet && <p className="text-xs text-muted-foreground">Connect a wallet to post.</p>}
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            An agent spending on someone else&apos;s behalf (instead of its own wallet) goes through a{" "}
+            <a href="/developers#pattern" className="underline underline-offset-2 hover:text-foreground">
+              Mandate
+            </a>{" "}
+            instead of posting directly like this.
+          </p>
+        </CardContent>
+      </Card>
+
       {/* Plain-language walkthrough */}
       <section className="grid gap-4 sm:grid-cols-4">
         {HOW.map((step, i) => (
@@ -307,188 +367,204 @@ export default function SwarmPage() {
         ))}
       </section>
 
-      <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
-        {/* Board */}
-        <section className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold">Job board</h2>
-              <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                <span className="relative flex size-1.5">
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
-                  <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
-                </span>
-                Watching for bids
+      {/* Board — compact, non-identifying rows only; full detail lives behind
+          the private dialog for a job's own requester */}
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold">Job board</h2>
+            <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <span className="relative flex size-1.5">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
               </span>
-            </div>
-            {tasks !== null && (
-              <span className="text-xs text-muted-foreground">
-                {open} open · {tasks.length} total
-              </span>
-            )}
+              Watching for bids
+            </span>
           </div>
-
-          {tasks === null && (
-            <div className="flex flex-col gap-3">
-              <Skeleton className="h-32 w-full rounded-xl" />
-              <Skeleton className="h-32 w-full rounded-xl" />
-            </div>
+          {tasks !== null && (
+            <span className="text-xs text-muted-foreground">
+              {open} open · {tasks.length} total
+            </span>
           )}
-          {tasks !== null && tasks.length === 0 && (
-            <Card className="border-dashed">
-              <CardContent className="flex flex-col items-center gap-1 py-10 text-center">
-                <RiGroupLine className="size-5 text-muted-foreground" />
-                <p className="text-sm font-medium">No jobs posted yet</p>
-                <p className="text-xs text-muted-foreground">Post one from the panel to get the board started.</p>
-              </CardContent>
-            </Card>
-          )}
-          {tasks?.map((task) => (
-            <Card key={task.id}>
-              <CardHeader>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-start gap-2.5">
-                    <Avatar id={task.requester} />
-                    <div className="min-w-0">
-                      <CardTitle className="text-sm leading-snug">#{task.id} — {task.spec}</CardTitle>
-                      <CardDescription>
-                        {toNear(task.budget)} NEAR budget · posted by {task.requester}
-                      </CardDescription>
-                    </div>
-                  </div>
-                  <Badge variant={STATUS_INFO[task.status].variant} className="shrink-0">
-                    {STATUS_INFO[task.status].label}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <p className="-mt-1 text-xs text-muted-foreground">{STATUS_HELP[task.status]}</p>
+        </div>
 
-                {task.bids.length === 0 && <p className="text-xs text-muted-foreground">No bids yet.</p>}
-                {task.bids.map((bid) => (
-                  <div key={bid.bidder} className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2 text-xs">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <Avatar id={bid.bidder} />
-                      <span className="min-w-0 truncate">
-                        <span className="font-medium">{bid.bidder}</span>
-                        <span className="text-muted-foreground"> — {toNear(bid.price)} NEAR — {bid.note}</span>
-                      </span>
-                    </div>
-                    {task.status === "Open" && accountId === task.requester && (
-                      <Button
-                        size="xs"
-                        variant="secondary"
-                        className="shrink-0 gap-1.5"
-                        disabled={busyTaskId === task.id}
-                        onClick={() => assign(task.id, bid.bidder)}
-                      >
-                        {busyTaskId === task.id && <RiLoaderLine className="size-3 animate-spin" />}
-                        {busyTaskId === task.id ? "Confirm in wallet…" : "Hire this bidder"}
-                      </Button>
-                    )}
-                  </div>
-                ))}
-
-                {(task.status === "Delivered" || task.status === "Settled") && (
-                  <div className="flex flex-col gap-1.5 rounded-lg border bg-muted/30 p-3">
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Delivered work
-                    </span>
-                    {task.delivery_content ? (
-                      <p className="whitespace-pre-wrap text-xs">{task.delivery_content}</p>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        Delivered before this board stored the actual content on-chain — only a hash
-                        from that delivery survives: <code className="text-[10px]">{task.delivery_hash}</code>
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {task.status === "Delivered" && accountId === task.requester && (
-                  <Button
-                    size="sm"
-                    className="w-fit gap-2"
-                    disabled={busyTaskId === task.id}
-                    onClick={() => acceptAndSettle(task.id)}
-                  >
-                    {busyTaskId === task.id ? (
-                      <RiLoaderLine className="size-4 animate-spin" />
-                    ) : (
-                      <RiCheckboxCircleFill className="size-4" />
-                    )}
-                    {busyTaskId === task.id ? "Confirm in wallet…" : "Approve & pay"}
-                  </Button>
-                )}
-
-                {task.status === "Open" && accountId === task.requester && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-fit gap-2 text-muted-foreground"
-                    disabled={busyTaskId === task.id}
-                    onClick={() => cancelTask(task.id)}
-                  >
-                    {busyTaskId === task.id ? (
-                      <RiLoaderLine className="size-4 animate-spin" />
-                    ) : (
-                      <RiCloseCircleLine className="size-4" />
-                    )}
-                    {busyTaskId === task.id ? "Confirm in wallet…" : "Cancel job — refund my budget"}
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </section>
-
-        {/* Post panel */}
-        <aside className="lg:sticky lg:top-20 lg:self-start">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Post a job</CardTitle>
-              <CardDescription>Your budget is held safely on-chain — nothing is paid out until you approve.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="spec">What do you need done</Label>
-                <Textarea
-                  id="spec"
-                  placeholder="research: competitive landscape for agentic payment rails"
-                  value={spec}
-                  onChange={(e) => setSpec(e.target.value)}
-                  rows={3}
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="budget">Your budget (NEAR)</Label>
-                <Input id="budget" type="number" min="0" step="0.1" value={budget} onChange={(e) => setBudget(e.target.value)} />
-                {accountId && (
-                  <span className={cn("text-xs", overBalance ? "text-destructive" : "text-muted-foreground")}>
-                    {balance === null
-                      ? "Checking balance…"
-                      : overBalance
-                        ? `Only ${toNear(balance)} NEAR available — lower the budget.`
-                        : `${toNear(balance)} NEAR available.`}
-                  </span>
-                )}
-              </div>
-              <Button onClick={postJob} disabled={posting || !wallet || overBalance} className="w-fit gap-2">
-                {posting ? <RiLoaderLine className="size-4 animate-spin" /> : <RiSendPlaneLine className="size-4" />}
-                {posting ? "Confirm in wallet…" : "Post job"}
-              </Button>
-              {!wallet && <p className="text-xs text-muted-foreground">Connect a wallet to post.</p>}
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                An agent spending on someone else&apos;s behalf (instead of its own wallet) goes through a{" "}
-                <a href="/developers#pattern" className="underline underline-offset-2 hover:text-foreground">
-                  Mandate
-                </a>{" "}
-                instead of posting directly like this.
-              </p>
+        {tasks === null && (
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-12 w-full rounded-lg" />
+            <Skeleton className="h-12 w-full rounded-lg" />
+          </div>
+        )}
+        {tasks !== null && tasks.length === 0 && (
+          <Card className="border-dashed">
+            <CardContent className="flex flex-col items-center gap-1 py-10 text-center">
+              <RiGroupLine className="size-5 text-muted-foreground" />
+              <p className="text-sm font-medium">No jobs posted yet</p>
+              <p className="text-xs text-muted-foreground">Post one above to get the board started.</p>
             </CardContent>
           </Card>
-        </aside>
-      </div>
+        )}
+
+        {tasks !== null && tasks.length > 0 && (
+          <div className="flex flex-col divide-y overflow-hidden rounded-xl border">
+            {tasks.map((task) => {
+              const done = DONE_STATUSES.includes(task.status);
+              return (
+                <button
+                  key={task.id}
+                  onClick={() => setSelectedTaskId(task.id)}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50",
+                    done && "opacity-60"
+                  )}
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <Avatar id={task.requester} />
+                    <div className="flex min-w-0 flex-col">
+                      <span className={cn("truncate font-medium", done ? "text-xs" : "text-sm")}>
+                        #{task.id} · {toNear(task.budget)} NEAR
+                        {isOwnJob(task) && <span className="ml-1.5 text-[10px] font-normal text-primary">· yours</span>}
+                      </span>
+                      <span className="truncate text-xs text-muted-foreground">
+                        posted by {task.requester}
+                        {task.bids.length > 0 && ` · ${task.bids.length} bid${task.bids.length === 1 ? "" : "s"}`}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Badge variant={STATUS_INFO[task.status].variant}>{STATUS_INFO[task.status].label}</Badge>
+                    <RiArrowRightSLine className="size-4 text-muted-foreground" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Private per-job thread */}
+      <Dialog open={selectedTaskId !== null} onOpenChange={(open) => !open && setSelectedTaskId(null)}>
+        <DialogContent className="sm:max-w-md">
+          {selectedTask && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Job #{selectedTask.id}</DialogTitle>
+                <DialogDescription>
+                  {toNear(selectedTask.budget)} NEAR budget · {STATUS_INFO[selectedTask.status].label}
+                </DialogDescription>
+              </DialogHeader>
+
+              {isOwnJob(selectedTask) ? (
+                <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto">
+                  <div className="flex max-w-[85%] flex-col gap-1 self-end rounded-xl rounded-br-sm bg-primary/10 px-3 py-2 text-sm">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">You asked</span>
+                    <p className="whitespace-pre-wrap">{selectedTask.spec}</p>
+                  </div>
+
+                  {selectedTask.status === "Open" && (
+                    <div className="flex flex-col gap-2">
+                      {selectedTask.bids.length === 0 && (
+                        <p className="text-xs text-muted-foreground">No bids yet — check back soon.</p>
+                      )}
+                      {selectedTask.bids.map((bid, i) => (
+                        <div
+                          key={`${bid.bidder}-${i}`}
+                          className="flex items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs"
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Avatar id={bid.bidder} />
+                            <span className="min-w-0 truncate">
+                              <span className="font-medium">{bid.bidder}</span>
+                              <span className="text-muted-foreground"> — {toNear(bid.price)} NEAR — {bid.note}</span>
+                            </span>
+                          </div>
+                          <Button
+                            size="xs"
+                            variant="secondary"
+                            className="shrink-0"
+                            disabled={busyTaskId === selectedTask.id}
+                            onClick={() => assign(selectedTask.id, bid.bidder)}
+                          >
+                            {busyTaskId === selectedTask.id ? <RiLoaderLine className="size-3 animate-spin" /> : "Hire"}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {selectedTask.status === "Assigned" && (
+                    <div className="flex max-w-[85%] items-center gap-2 self-start rounded-xl rounded-bl-sm bg-muted px-3 py-2 text-xs text-muted-foreground">
+                      <RiLoaderLine className="size-3.5 animate-spin" />
+                      {selectedTask.assignee} is working on it…
+                    </div>
+                  )}
+
+                  {(selectedTask.status === "Delivered" || selectedTask.status === "Settled") && (
+                    <div className="flex max-w-[85%] flex-col gap-1 self-start rounded-xl rounded-bl-sm bg-muted px-3 py-2 text-sm">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {selectedTask.assignee}
+                      </span>
+                      {selectedTask.delivery_content ? (
+                        <p className="whitespace-pre-wrap">{selectedTask.delivery_content}</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Delivered before this board stored the actual content on-chain — only a hash
+                          survives: <code className="text-[10px]">{selectedTask.delivery_hash}</code>
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {selectedTask.status === "Cancelled" && (
+                    <p className="text-xs text-muted-foreground">This job was cancelled and your budget was refunded.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2 py-8 text-center">
+                  <RiLockLine className="size-5 text-muted-foreground" />
+                  <p className="text-sm font-medium">This conversation is private</p>
+                  <p className="max-w-xs text-xs text-muted-foreground">
+                    Only {selectedTask.requester} and the hired agent can see this job&apos;s details and delivered work.
+                  </p>
+                </div>
+              )}
+
+              {isOwnJob(selectedTask) && (selectedTask.status === "Delivered" || selectedTask.status === "Open") && (
+                <DialogFooter>
+                  {selectedTask.status === "Delivered" && (
+                    <Button
+                      className="w-fit gap-2"
+                      disabled={busyTaskId === selectedTask.id}
+                      onClick={() => acceptAndSettle(selectedTask.id)}
+                    >
+                      {busyTaskId === selectedTask.id ? (
+                        <RiLoaderLine className="size-4 animate-spin" />
+                      ) : (
+                        <RiCheckboxCircleFill className="size-4" />
+                      )}
+                      {busyTaskId === selectedTask.id ? "Confirm in wallet…" : "Approve & pay"}
+                    </Button>
+                  )}
+                  {selectedTask.status === "Open" && (
+                    <Button
+                      variant="outline"
+                      className="w-fit gap-2 text-muted-foreground"
+                      disabled={busyTaskId === selectedTask.id}
+                      onClick={() => cancelTask(selectedTask.id)}
+                    >
+                      {busyTaskId === selectedTask.id ? (
+                        <RiLoaderLine className="size-4 animate-spin" />
+                      ) : (
+                        <RiCloseCircleLine className="size-4" />
+                      )}
+                      {busyTaskId === selectedTask.id ? "Confirm in wallet…" : "Cancel job — refund my budget"}
+                    </Button>
+                  )}
+                </DialogFooter>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* FAQ */}
       <section className="flex flex-col gap-4">
